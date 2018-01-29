@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net/http"
+	//"log"
+	"bytes"
 	"time"
+	"log"
 )
 
 func respond(res http.ResponseWriter, obj interface{}) {
@@ -37,26 +39,21 @@ func handleStart(res http.ResponseWriter, req *http.Request) {
 }
 
 func handleMove(res http.ResponseWriter, req *http.Request) {
-	data, err := NewMoveRequest(req)
+	var buffer bytes.Buffer
+	start := time.Now()
+	data, err := NewMoveRequest(req, &buffer)
+	log.Printf("Took %s", time.Since(start))
+	//log.Println(data, err)
 	if err != nil {
 		respond(res, MoveResponse{
 			Move:  "up",
-			Taunt: toStringPointer("can't parse this!"),
+			Taunt: toStringPointer("Will you fucked up"),
 		})
 		return
 	}
 
-	directions := []string{
-		"up",
-		"down",
-		"left",
-		"right",
-	}
-
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	respond(res, MoveResponse{
-		Move:  directions[r.Intn(4)],
-		Taunt: &data.You,
+		Move:  buffer.String(),
+		Taunt: &data.You.Taunt,
 	})
 }
