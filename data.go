@@ -92,8 +92,8 @@ func NewGameStartRequest(req *http.Request) (*GameStartRequest, error) {
 
 //func (snake Snake) Head() Point { return snake.Body.Data[0] } // do we need this
 
-func StraightLineDistance(x, y *Point) float64 {
-	return math.Sqrt(math.Pow(float64(x.X-y.X), 2) + math.Pow(float64(x.Y-y.Y), 2))
+func Distance(x, y *Point) float64 {
+    return math.Abs(float64(x.X-y.X)) + math.Abs(float64(x.Y-y.Y))
 }
 
 func AStarSearch(start, dest *Point, board *[][]uint8, buffer *bytes.Buffer) {
@@ -104,7 +104,7 @@ func AStarSearch(start, dest *Point, board *[][]uint8, buffer *bytes.Buffer) {
 
 	head := &Item{
 		value:    start,
-		priority: StraightLineDistance(start, dest) + 0, // path cost at head is 0
+		priority: Distance(start, dest) + 0, // path cost at head is 0
 		parent:   nil,
 	}
 
@@ -112,6 +112,9 @@ func AStarSearch(start, dest *Point, board *[][]uint8, buffer *bytes.Buffer) {
 
 	for pq.Len() > 0 {
 		curr := heap.Pop(&pq).(*Item)
+		if visited[*curr.value] {
+		    continue
+		}
 
 		if *curr.value == *dest {
 			Direction(curr, buffer)
@@ -141,7 +144,7 @@ func Expand(curr *Item, dest *Point, board *[][]uint8) *[]*Item {
 		}
 		successor = append(successor, &Item{
 			value:    next,
-			priority: pathCost + 1 + StraightLineDistance(next, dest),
+			priority: pathCost + 1 + Distance(next, dest),
 			parent:   curr,
 		})
 	}
@@ -154,7 +157,7 @@ func Expand(curr *Item, dest *Point, board *[][]uint8) *[]*Item {
 		}
 		successor = append(successor, &Item{
 			value:    next,
-			priority: pathCost + 1 + StraightLineDistance(next, dest),
+			priority: pathCost + 1 + Distance(next, dest),
 			parent:   curr,
 		})
 	}
@@ -167,7 +170,7 @@ func Expand(curr *Item, dest *Point, board *[][]uint8) *[]*Item {
 		}
 		successor = append(successor, &Item{
 			value:    next,
-			priority: pathCost + 1 + StraightLineDistance(next, dest),
+			priority: pathCost + 1 + Distance(next, dest),
 			parent:   curr,
 		})
 	}
@@ -180,7 +183,7 @@ func Expand(curr *Item, dest *Point, board *[][]uint8) *[]*Item {
 		}
 		successor = append(successor, &Item{
 			value:    next,
-			priority: pathCost + 1 + StraightLineDistance(next, dest),
+			priority: pathCost + 1 + Distance(next, dest),
 			parent:   curr,
 		})
 	}
@@ -209,5 +212,5 @@ func Direction(curr *Item, buffer *bytes.Buffer) {
 		buffer.WriteString("down")
 	}
 
-	// log.Println("curr: ", *curr.value, "parent: ", *curr.parent.value, "direction: ", buffer.String())
+	//log.Println("curr: ", *curr.value, "parent: ", *curr.parent.value, "direction: ", buffer.String())
 }
