@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"container/heap"
 	"encoding/json"
-	//"log"
 	"math"
 	"net/http"
+	//"log"
 )
 
 type GameStartRequest struct {
@@ -113,31 +113,27 @@ func AStarSearch(start, dest *Point, board *[][]uint8, buffer *bytes.Buffer) {
 	for pq.Len() > 0 {
 		curr := heap.Pop(&pq).(*Item)
 
-		if pq.Len() == 0 && curr.value != start {
+		if *curr.value == *dest {
 			Direction(curr, buffer)
 			return
 		}
 
-		if !visited[*curr.value] {
-			visited[*curr.value] = true
+		visited[*curr.value] = true
 
-			for _, neighbour := range Expand(curr, dest, board, &visited) {
-				//log.Println(neighbour.priority)
+		for _, neighbour := range *Expand(curr, dest, board) {
+			if !visited[*neighbour.value] {
 				heap.Push(&pq, neighbour)
 			}
 		}
 	}
 }
 
-func Expand(curr *Item, dest *Point, board *[][]uint8, visited *map[Point]bool) []*Item {
-	successor := []*Item{}
+func Expand(curr *Item, dest *Point, board *[][]uint8) *[]*Item {
+	successor := make([]*Item, 0)
 	pathCost := curr.priority
 	var next *Point
 
-	// if the bottom pos is within the board && is not any snake's body && not visited
-	if curr.value.Y+1 < len(*board) &&
-		(*board)[curr.value.Y+1][curr.value.X] != 1 &&
-		!(*visited)[Point{X: curr.value.X, Y: curr.value.Y + 1}] {
+	if curr.value.Y+1 < len(*board) && (*board)[curr.value.Y+1][curr.value.X] != 1 {
 
 		next = &Point{
 			X: curr.value.X,
@@ -150,9 +146,7 @@ func Expand(curr *Item, dest *Point, board *[][]uint8, visited *map[Point]bool) 
 		})
 	}
 
-	if curr.value.Y-1 >= 0 &&
-		(*board)[curr.value.Y-1][curr.value.X] != 1 &&
-		!(*visited)[Point{X: curr.value.X, Y: curr.value.Y - 1}] {
+	if curr.value.Y-1 >= 0 && (*board)[curr.value.Y-1][curr.value.X] != 1 {
 
 		next = &Point{
 			X: curr.value.X,
@@ -165,9 +159,7 @@ func Expand(curr *Item, dest *Point, board *[][]uint8, visited *map[Point]bool) 
 		})
 	}
 
-	if curr.value.X+1 < len((*board)[0]) &&
-		(*board)[curr.value.Y][curr.value.X+1] != 1 &&
-		!(*visited)[Point{X: curr.value.X + 1, Y: curr.value.Y}] {
+	if curr.value.X+1 < len((*board)[0]) && (*board)[curr.value.Y][curr.value.X+1] != 1 {
 
 		next = &Point{
 			X: curr.value.X + 1,
@@ -180,9 +172,7 @@ func Expand(curr *Item, dest *Point, board *[][]uint8, visited *map[Point]bool) 
 		})
 	}
 
-	if curr.value.X-1 >= 0 &&
-		(*board)[curr.value.Y][curr.value.X-1] != 1 &&
-		!(*visited)[Point{X: curr.value.X - 1, Y: curr.value.Y}] {
+	if curr.value.X-1 >= 0 && (*board)[curr.value.Y][curr.value.X-1] != 1 {
 
 		next = &Point{
 			X: curr.value.X - 1,
@@ -195,7 +185,7 @@ func Expand(curr *Item, dest *Point, board *[][]uint8, visited *map[Point]bool) 
 		})
 	}
 
-	return successor
+	return &successor
 }
 
 func Direction(curr *Item, buffer *bytes.Buffer) {
