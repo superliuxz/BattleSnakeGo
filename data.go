@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
-	//"log"
+	"log"
 )
 
 type GameStartRequest struct {
@@ -78,9 +78,11 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 		}
 	}
 
-	//log.Println(board)
 
-	AStarSearch(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &board, buffer)
+	path := AStarSearch(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &board)
+    buffer.WriteString(CalculateDirectionFromPath(path))
+
+    log.Println(buffer)
 	return &decoded, err
 }
 
@@ -90,13 +92,11 @@ func NewGameStartRequest(req *http.Request) (*GameStartRequest, error) {
 	return &decoded, err
 }
 
-//func (snake Snake) Head() Point { return snake.Body.Data[0] } // do we need this
-
 func Distance(x, y *Point) float64 {
     return math.Abs(float64(x.X-y.X)) + math.Abs(float64(x.Y-y.Y))
 }
 
-func AStarSearch(start, dest *Point, board *[][]uint8, buffer *bytes.Buffer) {
+func AStarSearch(start, dest *Point, board *[][]uint8) []Point {
 	visited := make(map[Point]bool)
 
 	pq := make(PriorityQueue, 0)
@@ -117,8 +117,7 @@ func AStarSearch(start, dest *Point, board *[][]uint8, buffer *bytes.Buffer) {
 		}
 
 		if *curr.value == *dest {
-			Direction(curr, buffer)
-			return
+			return CalculatePath(curr)
 		}
 
 		visited[*curr.value] = true
@@ -129,6 +128,7 @@ func AStarSearch(start, dest *Point, board *[][]uint8, buffer *bytes.Buffer) {
 			}
 		}
 	}
+	return nil
 }
 
 func Expand(curr *Item, dest *Point, board *[][]uint8) *[]*Item {
@@ -191,26 +191,37 @@ func Expand(curr *Item, dest *Point, board *[][]uint8) *[]*Item {
 	return &successor
 }
 
-func Direction(curr *Item, buffer *bytes.Buffer) {
-	for curr.parent.parent != nil {
+func CalculateDirectionFromPath(path []Point) string {
+	if path[1].X-path[0].X == -1 {
+		return "left"
+	} else if path[1].X-path[0].X == 1 {
+		return "right"
+	} else if path[1].Y-path[0].Y == -1 {
+		return "up"
+	} else if path[1].Y-path[0].Y == 1 {
+		return "down"
+	} else {
+	    return "up" //TODO the default should be handled better
+	}
+}
+
+func CalculatePath(curr *Item) []Point {
+
+    pathSize := 0
+    dest := curr
+	for curr != nil {
+        pathSize += 1
 		curr = curr.parent
 	}
 
-	if curr.value.X-curr.parent.value.X == -1 {
-		buffer.WriteString("left")
+	path := make([]Point, pathSize)
+	curr = dest
+	for curr != nil {
+        pathSize -= 1
+	    path[pathSize] = *curr.value
+		curr = curr.parent
 	}
 
-	if curr.value.X-curr.parent.value.X == 1 {
-		buffer.WriteString("right")
-	}
-
-	if curr.value.Y-curr.parent.value.Y == -1 {
-		buffer.WriteString("up")
-	}
-
-	if curr.value.Y-curr.parent.value.Y == 1 {
-		buffer.WriteString("down")
-	}
-
-	//log.Println("curr: ", *curr.value, "parent: ", *curr.parent.value, "direction: ", buffer.String())
+    log.Println(path)
+	return path
 }

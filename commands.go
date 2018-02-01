@@ -43,11 +43,10 @@ func handleMove(res http.ResponseWriter, req *http.Request) {
 	start := time.Now()
 	data, err := NewMoveRequest(req, &buffer)
 	log.Printf("Took %s", time.Since(start))
-	//log.Println(data, err)
 	if err != nil {
 		respond(res, MoveResponse{
 			Move:  "up",
-			Taunt: toStringPointer("Will you fucked up"),
+			Taunt: toStringPointer("Oops, our logic failed"),
 		})
 		return
 	}
