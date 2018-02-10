@@ -2,9 +2,8 @@ package main
 
 import (
 	"bytes"
-	"container/heap"
 	"encoding/json"
-	"math"
+	//"math"
 	"net/http"
 	"log"
 )
@@ -62,29 +61,204 @@ type Body struct {
 	Data []Point `json:"data"`
 }
 
+type Node struct {
+    pos *Point
+    weight int8
+}
+
 func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, error) {
 	decoded := MoveRequest{}
 	err := json.NewDecoder(req.Body).Decode(&decoded)
 
 	// create a board of current game state
-	board := make([][]uint8, decoded.Height)
+	board := make([][]int8, decoded.Height)
 	for y := range board {
-		board[y] = make([]uint8, decoded.Width)
+		board[y] = make([]int8, decoded.Width)
 	}
 	// fill the cells with 1 for snakes' bodies
 	for _, snk := range decoded.Snakes.Data {
 		for _, pos := range snk.Body.Data {
-			board[pos.Y][pos.X] = 1
+			board[pos.Y][pos.X] = -1
 		}
 	}
 
+    calculateWeights(&decoded.You.Body.Data[0], &board)
 
-	path := AStarSearch(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &board)
+    //var boardLine string
+    //for _, boardRow := range board {
+    //    boardLine = ""
+    //    for _, value := range boardRow {
+    //
+    //    }
+    //}
+    for _, boardRow := range board {
+        log.Println(boardRow)
+    }
+
+	//path := AStarSearch(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &board)
+    path := findPath(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &board)
     buffer.WriteString(CalculateDirectionFromPath(path))
 
     log.Println(buffer)
 	return &decoded, err
 }
+
+func calculateWeights(head *Point, board *[][]int8) {
+    var queue []*Node
+    var node *Node
+    queue = append(queue, &Node{
+            pos: &Point{
+                X: head.X+1,
+                Y: head.Y,
+            },
+            weight: 1,
+        })
+        queue = append(queue, &Node{
+            pos: &Point{
+                X: head.X-1,
+                Y: head.Y,
+            },
+            weight: 1,
+        })
+        queue = append(queue, &Node{
+            pos: &Point{
+                X: head.X,
+                Y: head.Y+1,
+            },
+            weight: 1,
+        })
+        queue = append(queue, &Node{
+            pos: &Point{
+                X: head.X,
+                Y: head.Y-1,
+            },
+            weight: 1,
+        })
+    for len(queue) != 0 {
+        node = queue[0]
+        queue = queue[1:]
+        if !isValid(node.pos, board) || isVisited(node.pos, board) {
+            continue
+        }
+        queue = append(queue, &Node{
+            pos: &Point{
+                X: node.pos.X+1,
+                Y: node.pos.Y,
+            },
+            weight: node.weight+1,
+        })
+        queue = append(queue, &Node{
+            pos: &Point{
+                X: node.pos.X-1,
+                Y: node.pos.Y,
+            },
+            weight: node.weight+1,
+        })
+        queue = append(queue, &Node{
+            pos: &Point{
+                X: node.pos.X,
+                Y: node.pos.Y+1,
+            },
+            weight: node.weight+1,
+        })
+        queue = append(queue, &Node{
+            pos: &Point{
+                X: node.pos.X,
+                Y: node.pos.Y-1,
+            },
+            weight: node.weight+1,
+        })
+        (*board)[node.pos.Y][node.pos.X] = node.weight
+    }
+}
+
+func isValid(pos *Point, board *[][]int8) bool {
+    if pos.Y >= len(*board) ||  pos.Y < 0 || pos.X < 0 || pos.X >= len((*board)[0]) || (*board)[pos.Y][pos.X] == -1 {
+        log.Printf("(%d, %d) is invalid", pos.X, pos.Y)
+        return false
+    } else {
+        return true
+    }
+}
+
+func isVisited(pos *Point, board *[][]int8) bool {
+    if (*board)[pos.Y][pos.X] > 0 {
+        log.Printf("(%d, %d) has already been checked", pos.X, pos.Y)
+        return true
+    } else {
+        return false
+    }
+}
+
+func findPath(start, dest *Point, board *[][]int8) *[]*Point {
+    var path []*Point
+    if (*board)[dest.Y][dest.X] == 0 {
+        return &path
+    }
+    path = append(path, dest)
+    next := dest
+    for next.X != start.X || next.Y != start.Y {
+        if (*board)[next.Y+1][next.X] < (*board)[next.Y][next.X] {
+            next = &Point{
+                X: next.X,
+                Y: next.Y+1,
+            }
+        } else if (*board)[next.Y-1][next.X] < (*board)[next.Y][next.X] {
+            next = &Point{
+                X: next.X,
+                Y: next.Y-1,
+            }
+        } else if (*board)[next.Y][next.X+1] < (*board)[next.Y][next.X] {
+            next = &Point{
+                X: next.X+1,
+                Y: next.Y,
+            }
+        } else {
+            next = &Point{
+                X: next.X-1,
+                Y: next.Y,
+            }
+        }
+        path = append(path, next)
+    }
+    returnPath := make([]*Point, len(path))
+    for i, node := range path {
+        returnPath[len(path) - i - 1] = node
+    }
+    return &returnPath
+}
+
+//func CheckBlocked(dir string, head *Point, board *[][]int8) bool {
+//    var next *Point
+//    switch dir {
+//        case "left":
+//            next = &Point{
+//                X: head.X-1,
+//                Y: head.Y,
+//            }
+//        case "right":
+//            next = &Point{
+//                X: head.X+1,
+//                Y: head.Y,
+//            }
+//        case "up":
+//            next = &Point{
+//                X: head.X,
+//                Y: head.Y-1,
+//            }
+//        case "down":
+//            next = &Point{
+//                X: head.X,
+//                Y: head.Y+1,
+//            }
+//        default:
+//            return false
+//    }
+//    if next.X < 0 || (*board)[next.Y][next.X-1] != 1 {
+//        return false
+//    }
+//    return true
+//}
 
 func NewGameStartRequest(req *http.Request) (*GameStartRequest, error) {
 	decoded := GameStartRequest{}
@@ -92,136 +266,17 @@ func NewGameStartRequest(req *http.Request) (*GameStartRequest, error) {
 	return &decoded, err
 }
 
-func Distance(x, y *Point) float64 {
-    return math.Abs(float64(x.X-y.X)) + math.Abs(float64(x.Y-y.Y))
-}
 
-func AStarSearch(start, dest *Point, board *[][]uint8) []Point {
-	visited := make(map[Point]bool)
-
-	pq := make(PriorityQueue, 0)
-	heap.Init(&pq)
-
-	head := &Item{
-		value:    start,
-		priority: Distance(start, dest) + 0, // path cost at head is 0
-		parent:   nil,
-	}
-
-	heap.Push(&pq, head)
-
-	for pq.Len() > 0 {
-		curr := heap.Pop(&pq).(*Item)
-		if visited[*curr.value] {
-		    continue
-		}
-
-		if *curr.value == *dest {
-			return CalculatePath(curr)
-		}
-
-		visited[*curr.value] = true
-
-		for _, neighbour := range *Expand(curr, dest, board) {
-			if !visited[*neighbour.value] {
-				heap.Push(&pq, neighbour)
-			}
-		}
-	}
-	return nil
-}
-
-func Expand(curr *Item, dest *Point, board *[][]uint8) *[]*Item {
-	successor := make([]*Item, 0)
-	pathCost := curr.priority
-	var next *Point
-
-	if curr.value.Y+1 < len(*board) && (*board)[curr.value.Y+1][curr.value.X] != 1 {
-
-		next = &Point{
-			X: curr.value.X,
-			Y: curr.value.Y + 1,
-		}
-		successor = append(successor, &Item{
-			value:    next,
-			priority: pathCost + 1 + Distance(next, dest),
-			parent:   curr,
-		})
-	}
-
-	if curr.value.Y-1 >= 0 && (*board)[curr.value.Y-1][curr.value.X] != 1 {
-
-		next = &Point{
-			X: curr.value.X,
-			Y: curr.value.Y - 1,
-		}
-		successor = append(successor, &Item{
-			value:    next,
-			priority: pathCost + 1 + Distance(next, dest),
-			parent:   curr,
-		})
-	}
-
-	if curr.value.X+1 < len((*board)[0]) && (*board)[curr.value.Y][curr.value.X+1] != 1 {
-
-		next = &Point{
-			X: curr.value.X + 1,
-			Y: curr.value.Y,
-		}
-		successor = append(successor, &Item{
-			value:    next,
-			priority: pathCost + 1 + Distance(next, dest),
-			parent:   curr,
-		})
-	}
-
-	if curr.value.X-1 >= 0 && (*board)[curr.value.Y][curr.value.X-1] != 1 {
-
-		next = &Point{
-			X: curr.value.X - 1,
-			Y: curr.value.Y,
-		}
-		successor = append(successor, &Item{
-			value:    next,
-			priority: pathCost + 1 + Distance(next, dest),
-			parent:   curr,
-		})
-	}
-
-	return &successor
-}
-
-func CalculateDirectionFromPath(path []Point) string {
-	if path[1].X-path[0].X == -1 {
+func CalculateDirectionFromPath(path *[]*Point) string {
+	if (*path)[1].X-(*path)[0].X == -1 {
 		return "left"
-	} else if path[1].X-path[0].X == 1 {
+	} else if (*path)[1].X-(*path)[0].X == 1 {
 		return "right"
-	} else if path[1].Y-path[0].Y == -1 {
+	} else if (*path)[1].Y-(*path)[0].Y == -1 {
 		return "up"
-	} else if path[1].Y-path[0].Y == 1 {
+	} else if (*path)[1].Y-(*path)[0].Y == 1 {
 		return "down"
 	} else {
 	    return "up" //TODO the default should be handled better
 	}
-}
-
-func CalculatePath(curr *Item) []Point {
-
-    pathSize := 0
-    dest := curr
-	for curr != nil {
-        pathSize += 1
-		curr = curr.parent
-	}
-
-	path := make([]Point, pathSize)
-	curr = dest
-	for curr != nil {
-        pathSize -= 1
-	    path[pathSize] = *curr.value
-		curr = curr.parent
-	}
-
-    log.Println(path)
-	return path
 }
