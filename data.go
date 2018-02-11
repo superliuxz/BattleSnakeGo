@@ -6,6 +6,7 @@ import (
 	//"math"
 	"net/http"
 	"log"
+	//"net"
 )
 
 type GameStartRequest struct {
@@ -83,24 +84,18 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 	}
 
     calculateWeights(&decoded.You.Body.Data[0], &board)
+	PrettyPrintBoard(&board)
 
-    //var boardLine string
-    //for _, boardRow := range board {
-    //    boardLine = ""
-    //    for _, value := range boardRow {
-    //
-    //    }
-    //}
-    for _, boardRow := range board {
-        log.Println(boardRow)
-    }
-
-	//path := AStarSearch(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &board)
     path := findPath(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &board)
     buffer.WriteString(CalculateDirectionFromPath(path))
-
-    log.Println(buffer)
+    log.Println("next move:", buffer.String())
 	return &decoded, err
+}
+
+func PrettyPrintBoard(board *[][]int8) {
+	for _, boardRow := range *board {
+		log.Printf("%2v", boardRow)
+	}
 }
 
 func calculateWeights(head *Point, board *[][]int8) {
@@ -113,26 +108,26 @@ func calculateWeights(head *Point, board *[][]int8) {
             },
             weight: 1,
         })
-        queue = append(queue, &Node{
-            pos: &Point{
-                X: head.X-1,
-                Y: head.Y,
-            },
-            weight: 1,
-        })
-        queue = append(queue, &Node{
-            pos: &Point{
-                X: head.X,
-                Y: head.Y+1,
-            },
-            weight: 1,
-        })
-        queue = append(queue, &Node{
-            pos: &Point{
-                X: head.X,
-                Y: head.Y-1,
-            },
-            weight: 1,
+	queue = append(queue, &Node{
+		pos: &Point{
+			X: head.X-1,
+			Y: head.Y,
+		},
+		weight: 1,
+	})
+	queue = append(queue, &Node{
+		pos: &Point{
+			X: head.X,
+			Y: head.Y+1,
+		},
+		weight: 1,
+	})
+	queue = append(queue, &Node{
+		pos: &Point{
+			X: head.X,
+			Y: head.Y-1,
+		},
+		weight: 1,
         })
     for len(queue) != 0 {
         node = queue[0]
@@ -174,7 +169,7 @@ func calculateWeights(head *Point, board *[][]int8) {
 
 func isValid(pos *Point, board *[][]int8) bool {
     if pos.Y >= len(*board) ||  pos.Y < 0 || pos.X < 0 || pos.X >= len((*board)[0]) || (*board)[pos.Y][pos.X] == -1 {
-        log.Printf("(%d, %d) is invalid", pos.X, pos.Y)
+        //log.Printf("(%d, %d) is invalid", pos.X, pos.Y)
         return false
     } else {
         return true
@@ -183,7 +178,7 @@ func isValid(pos *Point, board *[][]int8) bool {
 
 func isVisited(pos *Point, board *[][]int8) bool {
     if (*board)[pos.Y][pos.X] > 0 {
-        log.Printf("(%d, %d) has already been checked", pos.X, pos.Y)
+        //log.Printf("(%d, %d) has already been checked", pos.X, pos.Y)
         return true
     } else {
         return false
@@ -192,40 +187,81 @@ func isVisited(pos *Point, board *[][]int8) bool {
 
 func findPath(start, dest *Point, board *[][]int8) *[]*Point {
     var path []*Point
+    var next *Point
+    // dest unreachable
     if (*board)[dest.Y][dest.X] == 0 {
         return &path
     }
     path = append(path, dest)
-    next := dest
-    for next.X != start.X || next.Y != start.Y {
-        if (*board)[next.Y+1][next.X] < (*board)[next.Y][next.X] {
+    curr := dest
+    for curr.X != start.X || curr.Y != start.Y {
+		// fancy name: gradient descent
+        if  curr.Y < len(*board) - 1 && (*board)[curr.Y+1][curr.X] - (*board)[curr.Y][curr.X] == -1 {
             next = &Point{
-                X: next.X,
-                Y: next.Y+1,
+                X: curr.X,
+                Y: curr.Y+1,
             }
-        } else if (*board)[next.Y-1][next.X] < (*board)[next.Y][next.X] {
+        } else if curr.Y > 0 && (*board)[curr.Y-1][curr.X] - (*board)[curr.Y][curr.X] == -1 {
             next = &Point{
-                X: next.X,
-                Y: next.Y-1,
+                X: curr.X,
+                Y: curr.Y-1,
             }
-        } else if (*board)[next.Y][next.X+1] < (*board)[next.Y][next.X] {
+        } else if curr.X < len((*board)[0]) - 1 && (*board)[curr.Y][curr.X+1] - (*board)[curr.Y][curr.X] == -1 {
             next = &Point{
-                X: next.X+1,
-                Y: next.Y,
+                X: curr.X+1,
+                Y: curr.Y,
             }
-        } else {
+        } else if curr.X > 0 && (*board)[curr.Y][curr.X-1] - (*board)[curr.Y][curr.X] == -1 {
             next = &Point{
-                X: next.X-1,
-                Y: next.Y,
+                X: curr.X-1,
+                Y: curr.Y,
             }
         }
-        path = append(path, next)
+		// if curr is right beside the dest then next is null
+        if next == nil {
+			next = curr
+		}
+        // if next is not updated by any of the above four directions
+		if next.X == curr.X && next.Y == curr.Y {
+			// check if start is in any four direction
+			if curr.Y < len(*board)-1 && curr.X == start.X && curr.Y+1 == start.Y {
+				next = &Point{
+					X: curr.X,
+					Y: curr.Y + 1,
+				}
+			} else if curr.Y > 0 && curr.X == start.X && curr.Y-1 == start.Y {
+				next = &Point{
+					X: curr.X,
+					Y: curr.Y - 1,
+				}
+			} else if curr.X < len((*board)[0])-1 && curr.X+1 == start.X && curr.Y == start.Y {
+				next = &Point{
+					X: curr.X + 1,
+					Y: curr.Y,
+				}
+			} else if curr.X > 0 && curr.X-1 == start.X && curr.Y == start.Y {
+				next = &Point{
+					X: curr.X - 1,
+					Y: curr.Y,
+				}
+			// i don't think this could happen tho
+			} else {
+				log.Panicf("smells like teen spirit: curr (%d, %d), next (%d, %d), start (%d, %d),",
+					curr.X, curr.Y, next.X, next.Y, start.X, start.Y)
+			}
+		}
+
+		path = append(path, next)
+		curr = next
     }
-    returnPath := make([]*Point, len(path))
-    for i, node := range path {
-        returnPath[len(path) - i - 1] = node
-    }
-    return &returnPath
+    ReversePath(path)
+    return &path
+}
+
+func ReversePath(array []*Point) {
+	for i, j := 0, len(array)-1; i<j; i, j = i+1, j-1 {
+		array[i], array[j] = array[j], array[i]
+	}
 }
 
 //func CheckBlocked(dir string, head *Point, board *[][]int8) bool {
