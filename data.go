@@ -83,12 +83,28 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 		}
 	}
 
-    calculateWeights(&decoded.You.Body.Data[0], &board)
+    FloodFill(&decoded.You.Body.Data[0], &board)
 	PrettyPrintBoard(&board)
+	head := &(decoded.You.Body.Data[0])
+	tail := &(decoded.You.Body.Data[len(decoded.You.Body.Data)-1])
+	bodyLength := len(decoded.You.Body.Data)
 
-    path := findPath(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &board)
+    path := findPath(head, &decoded.Food.Data[0], &board)
     buffer.WriteString(CalculateDirectionFromPath(path))
-    log.Println("next move:", buffer.String())
+
+    nextMove := buffer.String()
+    log.Println("next move:", nextMove)
+
+    newBoard, newHead := SimulateNextMove(nextMove, head, tail, &board)
+	PrettyPrintBoard(newBoard)
+
+	availableSpace := FloodFill(newHead, newBoard)
+	log.Println("available space after next move:", availableSpace)
+	if availableSpace < bodyLength {
+		// TODO try other direction
+	}
+
+
 	return &decoded, err
 }
 
@@ -98,7 +114,8 @@ func PrettyPrintBoard(board *[][]int8) {
 	}
 }
 
-func calculateWeights(head *Point, board *[][]int8) {
+func FloodFill(head *Point, board *[][]int8) int {
+	// takes ~1ms for 20x20 grid
     var queue []*Node
     var node *Node
     queue = append(queue, &Node{
@@ -129,6 +146,7 @@ func calculateWeights(head *Point, board *[][]int8) {
 		},
 		weight: 1,
         })
+	numSpaces := 0
     for len(queue) != 0 {
         node = queue[0]
         queue = queue[1:]
@@ -164,7 +182,9 @@ func calculateWeights(head *Point, board *[][]int8) {
             weight: node.weight+1,
         })
         (*board)[node.pos.Y][node.pos.X] = node.weight
+		numSpaces += 1
     }
+    return numSpaces
 }
 
 func isValid(pos *Point, board *[][]int8) bool {
@@ -315,4 +335,51 @@ func CalculateDirectionFromPath(path *[]*Point) string {
 	} else {
 	    return "up" //TODO the default should be handled better
 	}
+}
+
+func SimulateNextMove(direction string, head, tail *Point, board *[][]int8) (*[][]int8, *Point) {
+	newBoard := make([][]int8, len(*board))
+	for y := range *board {
+		newBoard[y] = make([]int8, len((*board)[0]))
+	}
+
+	for y := range newBoard {
+		for x:= range newBoard[y] {
+			if (*board)[y][x] == -1 {
+				newBoard[y][x] = -1
+			}
+		}
+	}
+
+	var newHead *Point
+	switch direction {
+		case "up":
+			newBoard[head.Y-1][head.X] = -1
+			newHead = &Point{
+				Y: head.Y-1,
+				X: head.X,
+			}
+		case "right":
+			newBoard[head.Y][head.X+1] = -1
+			newHead = &Point{
+				Y: head.Y,
+				X: head.X+1,
+			}
+		case "down":
+			newBoard[head.Y+1][head.X] = -1
+			newHead = &Point{
+				Y: head.Y+1,
+				X: head.X,
+			}
+		case "left":
+			newBoard[head.Y][head.X-1] = -1
+			newHead = &Point{
+				Y: head.Y,
+				X: head.X-1,
+			}
+	}
+
+	newBoard[tail.Y][tail.X] = 0
+
+	return &newBoard, newHead
 }
