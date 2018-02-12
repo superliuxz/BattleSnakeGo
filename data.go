@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"math"
+	//"math"
 	"net/http"
 	"log"
 	//"net"
@@ -76,253 +76,36 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 	for y := range board {
 		board[y] = make([]int8, decoded.Width)
 	}
-	// fill the cells with -1 for snakes' bodies
+	// fill the cells with 1 for snakes' bodies
 	for _, snk := range decoded.Snakes.Data {
 		for _, pos := range snk.Body.Data {
 			board[pos.Y][pos.X] = -1
-
 		}
 	}
 
-    x := FloodFill(&decoded.You.Body.Data[0], &board, false)
-    log.Println("board after 1st flood fill:", x)
+    FloodFill(&decoded.You.Body.Data[0], &board)
 	PrettyPrintBoard(&board)
 	head := &(decoded.You.Body.Data[0])
 	tail := &(decoded.You.Body.Data[len(decoded.You.Body.Data)-1])
 	bodyLength := len(decoded.You.Body.Data)
-	log.Println("body length", bodyLength)
 
-	moves := PossibleMoves(head, &board)
-	log.Println("possible moves:", *moves)
+    path := findPath(head, &decoded.Food.Data[0], &board)
+    buffer.WriteString(CalculateDirectionFromPath(path))
 
-	explored := make(map[string]int)
+    nextMove := buffer.String()
+    log.Println("next move:", nextMove)
 
-	//boardCopy := CopyBoard(&board) // make a copy of current game board
+    newBoard, newHead := SimulateNextMove(nextMove, head, tail, &board)
+	PrettyPrintBoard(newBoard)
 
-    for len(*moves) != 0 {
-		path := findPath(head, &decoded.Food.Data[0], &board)
-		// if the food is not reachable, chase tail
-		// TODO chase tail is not reliable. tail can be unreachable. should chase the 1st block that opens up
-		if len(*path) == 0 {
-			log.Println("unreachable food")
-			if board[tail.Y][tail.X] == -1 {
-				AssignTailWeight(tail, board)
-			}
-			log.Printf("head (%d, %d) starts chasing tail (%d, %d)", head.X, head.Y, tail.X, tail.Y)
-			path = findPath(head, tail, &board)
-		// if somehow the calculated path does not start from the head -- head is not reachable from the dest
-		// then we want to:
-		//					if there are still possible moves, explore those
-		//					if not, pick one from the explored that will least likely to kill us
-		} else if (*path)[0].X != head.X || (*path)[0].Y != head.Y {
-			if len(*moves) != 0 {
-				// overwrite path based on next
-				for k := range *moves {
-					log.Println("overwritting path", head, k)
-					OverwritePath(path, k, head)
-					break
-				}
-			} else {
-				log.Println("unreachable head")
-				SelectDirectionWithMostSpaces(&explored, head, &decoded.Food.Data[0], buffer)
-				log.Println("explored:", explored, "picked:", buffer.String())
-				return &decoded, err
-			}
-		}
-		buffer.WriteString(CalculateDirectionFromPath(path))
-
-		nextMove := buffer.String()
-		log.Println("next move:", nextMove)
-
-		if _, exist := (*moves)[nextMove]; !exist {
-			log.Panic("congrats u stepped into another dimention by ", nextMove)
-		}
-
-		newBoard, newHead := SimulateNextMove(nextMove, head, tail, &board)
-
-		availableSpace := FloodFill(newHead, newBoard, false) + len(explored)
-		log.Println("available space after next move:", availableSpace)
-		log.Println("new board:")
-		PrettyPrintBoard(newBoard)
-
-		explored[nextMove] = availableSpace
-
-		if availableSpace < bodyLength {
-			delete(*moves, nextMove)
-			board[newHead.Y][newHead.X] = -1
-			//log.Printf("newhead (%d, %d), head(%d, %d)", newHead.X, newHead.Y, head.X, head.Y)
-			FloodFill(head, &board, true) // erase all the positive weight
-			log.Println("board after remove all positive weight:")
-			PrettyPrintBoard(&board)
-			FloodFill(head, &board, false) // recalculate the weight
-			log.Println("board after re-floodfill:")
-			PrettyPrintBoard(&board)
-			log.Println("moves left:", *moves)
-			// discard the current move
-			buffer.Reset()
-		} else {
-			break
-		}
+	availableSpace := FloodFill(newHead, newBoard)
+	log.Println("available space after next move:", availableSpace)
+	if availableSpace < bodyLength {
+		// TODO try other direction
 	}
 
-	if buffer.String() == "" {
-		SelectDirectionWithMostSpaces(&explored, head, &decoded.Food.Data[0], buffer)
-	}
-
-	log.Println("explored direction:", explored)
-
-	log.Println("pick direction ", buffer.String())
 
 	return &decoded, err
-}
-
-func OverwritePath(path *[]*Point, dir string, head *Point) {
-	(*path)[0] = head
-	switch dir {
-	case "up":
-		(*path)[1] = &Point{
-			Y: head.Y-1,
-			X: head.X,
-		}
-	case "right":
-		(*path)[1] = &Point{
-			Y: head.Y,
-			X: head.X+1,
-		}
-	case "down":
-		(*path)[1] = &Point{
-			Y: head.Y+1,
-			X: head.X,
-		}
-	case "left":
-		(*path)[1] = &Point{
-			Y: head.Y,
-			X: head.X-1,
-		}
-	}
-}
-
-func Distance(x, y *Point) float64 {
-	return math.Abs(float64(x.X-y.X)) + math.Abs(float64(x.Y-y.Y))
-}
-
-func TieBreaking(directions []string, start, dest *Point, buffer *bytes.Buffer) {
-	tieBreak := make(map[string]float64)
-	dis := float64(0)
-	for _, v := range directions {
-		switch v {
-		case "up":
-			dis = Distance(&Point{
-				Y: start.Y-1,
-				X: start.X,
-			}, dest)
-		case "right":
-			dis = Distance(&Point{
-				Y: start.Y,
-				X: start.X+1,
-			}, dest)
-		case "down":
-			dis = Distance(&Point{
-				Y: start.Y+1,
-				X: start.X,
-			}, dest)
-		case "left":
-			dis = Distance(&Point{
-				Y: start.Y,
-				X: start.X-1,
-			}, dest)
-		}
-		tieBreak[v] = dis
-	}
-
-	minDis := math.MaxFloat64
-	for _, v := range tieBreak {
-		if v < minDis {
-			minDis = v
-		}
-	}
-	log.Println("tie breaking:", tieBreak)
-	for k, v := range tieBreak {
-		if v == minDis {
-			log.Println("write", k)
-			buffer.WriteString(k)
-			break // TODO need another heuristic to break the tie if Distance fails
-		}
-	}
-}
-
-func SelectDirectionWithMostSpaces(explored *map[string]int, start, dest *Point, buffer *bytes.Buffer) {
-	buffer.Reset()
-	maxSpaces := math.MinInt32
-	dirWithMostSpaces := make([]string, 0)
-
-	for _, v := range *explored {
-		if v > maxSpaces {
-			maxSpaces = v
-		}
-	}
-	//log.Printf("max spaces %d", maxSpaces)
-
-	for k, v := range *explored {
-		if maxSpaces == v {
-			dirWithMostSpaces = append(dirWithMostSpaces, k)
-		}
-	}
-
-	if len(dirWithMostSpaces) == 1 {
-		buffer.WriteString(dirWithMostSpaces[0])
-	} else if len(dirWithMostSpaces) > 1 {
-		TieBreaking(dirWithMostSpaces, start, dest, buffer)
-	}
-}
-
-func AssignTailWeight(tail *Point, board [][]int8) {
-	if isValid(
-		&Point{
-			X: tail.X,
-			Y: tail.Y+1,
-		}, &board) {
-		board[tail.Y][tail.X] = board[tail.Y+1][tail.X]+1
-		//log.Println("assign from down")
-	} else if isValid(
-		&Point{
-			X: tail.X,
-			Y: tail.Y-1,
-		}, &board) {
-		board[tail.Y][tail.X] = board[tail.Y-1][tail.X]+1
-		//log.Print("assign from up")
-	} else if isValid(
-		&Point{
-			X: tail.X+1,
-			Y: tail.Y,
-		}, &board) {
-		board[tail.Y][tail.X] = board[tail.Y][tail.X+1]+1
-		//log.Println("assign from right")
-	} else {
-		board[tail.Y][tail.X] = board[tail.Y][tail.X-1]+1
-		//log.Print("assign from left")
-	}
-	log.Println("board after assign tail:", tail)
-	PrettyPrintBoard(&board)
-}
-
-func PossibleMoves(head *Point, board *[][]int8) (*map[string]bool) {
-	possibleMoves := make(map[string]bool)
-
-	if head.Y+1 < len(*board) && (*board)[head.Y+1][head.X] != -1 {
-		possibleMoves["down"] = true
-	}
-	if head.Y > 0 && (*board)[head.Y-1][head.X] != -1 {
-		possibleMoves["up"] = true
-	}
-	if head.X+1 < len((*board)[0]) && (*board)[head.Y][head.X+1] != -1 {
-		possibleMoves["right"] = true
-	}
-	if head.X > 0 && (*board)[head.Y][head.X-1] != -1 {
-		possibleMoves["left"] = true
-	}
-
-	return &possibleMoves
 }
 
 func PrettyPrintBoard(board *[][]int8) {
@@ -331,7 +114,7 @@ func PrettyPrintBoard(board *[][]int8) {
 	}
 }
 
-func FloodFill(head *Point, board *[][]int8, erase bool) int {
+func FloodFill(head *Point, board *[][]int8) int {
 	// takes ~1ms for 20x20 grid
     var queue []*Node
     var node *Node
@@ -367,7 +150,7 @@ func FloodFill(head *Point, board *[][]int8, erase bool) int {
     for len(queue) != 0 {
         node = queue[0]
         queue = queue[1:]
-        if !isValid(node.pos, board) || isVisited(node.pos, board, erase) {
+        if !isValid(node.pos, board) || isVisited(node.pos, board) {
             continue
         }
         queue = append(queue, &Node{
@@ -398,12 +181,7 @@ func FloodFill(head *Point, board *[][]int8, erase bool) int {
             },
             weight: node.weight+1,
         })
-        if erase {
-        	//log.Printf("erasing (%d, %d)", node.pos.X, node.pos.Y)
-			(*board)[node.pos.Y][node.pos.X] = 0
-		} else {
-			(*board)[node.pos.Y][node.pos.X] = node.weight
-		}
+        (*board)[node.pos.Y][node.pos.X] = node.weight
 		numSpaces += 1
     }
     return numSpaces
@@ -418,18 +196,13 @@ func isValid(pos *Point, board *[][]int8) bool {
     }
 }
 
-func isVisited(pos *Point, board *[][]int8, erase bool) bool {
-	if erase {
-		if (*board)[pos.Y][pos.X] == 0 {
-			return true
-		}
-	} else {
-		if (*board)[pos.Y][pos.X] > 0 {
-			//log.Printf("(%d, %d) has already been checked", pos.X, pos.Y)
-			return true
-		}
-	}
-	return false
+func isVisited(pos *Point, board *[][]int8) bool {
+    if (*board)[pos.Y][pos.X] > 0 {
+        //log.Printf("(%d, %d) has already been checked", pos.X, pos.Y)
+        return true
+    } else {
+        return false
+    }
 }
 
 func findPath(start, dest *Point, board *[][]int8) *[]*Point {
@@ -491,13 +264,13 @@ func findPath(start, dest *Point, board *[][]int8) *[]*Point {
 					X: curr.X - 1,
 					Y: curr.Y,
 				}
-			// if somehow the gradient discontinued, and start is not in any of the four directions
+			// i don't think this could happen tho
 			} else {
-				log.Printf("smells like teen spirit: curr (%d, %d), next (%d, %d), start (%d, %d),",
+				log.Panicf("smells like teen spirit: curr (%d, %d), next (%d, %d), start (%d, %d),",
 					curr.X, curr.Y, next.X, next.Y, start.X, start.Y)
-				break
 			}
 		}
+
 		path = append(path, next)
 		curr = next
     }
@@ -549,8 +322,8 @@ func NewGameStartRequest(req *http.Request) (*GameStartRequest, error) {
 	return &decoded, err
 }
 
+
 func CalculateDirectionFromPath(path *[]*Point) string {
-	log.Printf("calc path from (%d, %d) to (%d, %d)", (*path)[0].X, (*path)[0].Y, (*path)[1].X, (*path)[1].Y)
 	if (*path)[1].X-(*path)[0].X == -1 {
 		return "left"
 	} else if (*path)[1].X-(*path)[0].X == 1 {
@@ -562,20 +335,6 @@ func CalculateDirectionFromPath(path *[]*Point) string {
 	} else {
 	    return "up" //TODO the default should be handled better
 	}
-}
-
-func CopyBoard(board *[][]int8) (*[][]int8) {
-	newBoard := make([][]int8, len(*board))
-	for y := range *board {
-		newBoard[y] = make([]int8, len((*board)[0]))
-	}
-
-	for y := range newBoard {
-		for x:= range newBoard[y] {
-			newBoard[y][x] = (*board)[y][x]
-		}
-	}
-	return &newBoard
 }
 
 func SimulateNextMove(direction string, head, tail *Point, board *[][]int8) (*[][]int8, *Point) {

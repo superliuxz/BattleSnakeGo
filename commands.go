@@ -43,7 +43,6 @@ func handleMove(res http.ResponseWriter, req *http.Request) {
 	start := time.Now()
 	data, err := NewMoveRequest(req, &buffer)
 	log.Printf("Took %s", time.Since(start))
-	log.Println()
 	if err != nil {
 		respond(res, MoveResponse{
 			Move:  "up",
