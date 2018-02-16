@@ -193,66 +193,31 @@ func findPath(start, dest *Point, board *[][]int8) *[]*Point {
         return &path
     }
     path = append(path, dest)
-    curr := dest
-    for curr.X != start.X || curr.Y != start.Y {
-		// fancy name: gradient descent
-        if  curr.Y < len(*board) - 1 && (*board)[curr.Y+1][curr.X] - (*board)[curr.Y][curr.X] == -1 {
+    next = dest
+    for next.X != start.X || next.Y != start.Y {
+        if  next.Y < len(*board) - 1 && ((*board)[next.Y+1][next.X] - (*board)[next.Y][next.X] == -1 || (next.Y+1 == start.Y && next.X == start.X)) {
             next = &Point{
-                X: curr.X,
-                Y: curr.Y+1,
+                X: next.X,
+                Y: next.Y+1,
             }
-        } else if curr.Y > 0 && (*board)[curr.Y-1][curr.X] - (*board)[curr.Y][curr.X] == -1 {
+        } else if next.Y > 0 && ((*board)[next.Y-1][next.X] - (*board)[next.Y][next.X] == -1 || (next.Y-1 == start.Y && next.X == start.X)) {
             next = &Point{
-                X: curr.X,
-                Y: curr.Y-1,
+                X: next.X,
+                Y: next.Y-1,
             }
-        } else if curr.X < len((*board)[0]) - 1 && (*board)[curr.Y][curr.X+1] - (*board)[curr.Y][curr.X] == -1 {
+        } else if next.X < len((*board)[0]) - 1 && ((*board)[next.Y][next.X+1] - (*board)[next.Y][next.X] == -1 || (next.Y == start.Y && next.X+1 == start.X)) {
             next = &Point{
-                X: curr.X+1,
-                Y: curr.Y,
+                X: next.X+1,
+                Y: next.Y,
             }
-        } else if curr.X > 0 && (*board)[curr.Y][curr.X-1] - (*board)[curr.Y][curr.X] == -1 {
+        } else if next.X > 0 && ((*board)[next.Y][next.X-1] - (*board)[next.Y][next.X] == -1 || (next.Y == start.Y && next.X-1 == start.X)) {
             next = &Point{
-                X: curr.X-1,
-                Y: curr.Y,
+                X: next.X-1,
+                Y: next.Y,
             }
         }
-		// if curr is right beside the dest then next is null
-        if next == nil {
-			next = curr
-		}
-        // if next is not updated by any of the above four directions
-		if next.X == curr.X && next.Y == curr.Y {
-			// check if start is in any four direction
-			if curr.Y < len(*board)-1 && curr.X == start.X && curr.Y+1 == start.Y {
-				next = &Point{
-					X: curr.X,
-					Y: curr.Y + 1,
-				}
-			} else if curr.Y > 0 && curr.X == start.X && curr.Y-1 == start.Y {
-				next = &Point{
-					X: curr.X,
-					Y: curr.Y - 1,
-				}
-			} else if curr.X < len((*board)[0])-1 && curr.X+1 == start.X && curr.Y == start.Y {
-				next = &Point{
-					X: curr.X + 1,
-					Y: curr.Y,
-				}
-			} else if curr.X > 0 && curr.X-1 == start.X && curr.Y == start.Y {
-				next = &Point{
-					X: curr.X - 1,
-					Y: curr.Y,
-				}
-			// i don't think this could happen tho
-			} else {
-				log.Panicf("smells like teen spirit: curr (%d, %d), next (%d, %d), start (%d, %d),",
-					curr.X, curr.Y, next.X, next.Y, start.X, start.Y)
-			}
-		}
 
 		path = append(path, next)
-		curr = next
     }
     ReversePath(path)
     return &path
