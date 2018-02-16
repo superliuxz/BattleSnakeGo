@@ -7,7 +7,13 @@ import (
 	"net/http"
 	"log"
 	//"net"
+	"math"
 )
+
+const LEFT = 0
+const DOWN = 1
+const RIGHT = 2
+const UP = 3
 
 type GameStartRequest struct {
 	GameId int `json:"game_id"`
@@ -67,6 +73,11 @@ type Node struct {
     weight int8
 }
 
+type MoveState struct {
+    BoardWeights *[][]int8
+    MovesRemaining int
+}
+
 func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, error) {
 	decoded := MoveRequest{}
 	err := json.NewDecoder(req.Body).Decode(&decoded)
@@ -83,11 +94,90 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 		}
 	}
 
-    calculateWeights(&decoded.You.Body.Data[0], &board)
-	PrettyPrintBoard(&board)
+	gameState := make([]*MoveState, 4)
+    head := decoded.You.Body.Data[0]
+    left := &Point{head.X - 1,head.Y}
+	right := &Point{head.X + 1,head.Y}
+	down := &Point{head.X,head.Y + 1}
+	up := &Point{head.X,head.Y - 1}
+    if isValid(left, &board) {
+		gameState[LEFT] = createMoveState(left, &board)
+	}
+	if isValid(right, &board) {
+		gameState[RIGHT] = createMoveState(right, &board)
+	}
+	if isValid(up, &board) {
+		gameState[UP] = createMoveState(up, &board)
+	}
+	if isValid(down, &board) {
+		gameState[DOWN] = createMoveState(down, &board)
+	}
 
-    path := findPath(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &board)
-    buffer.WriteString(CalculateDirectionFromPath(path))
+	if gameState[LEFT] != nil {
+		PrettyPrintBoard(gameState[LEFT].BoardWeights)
+	}
+	if gameState[DOWN] != nil {
+		PrettyPrintBoard(gameState[DOWN].BoardWeights)
+	}
+	if gameState[RIGHT] != nil {
+		PrettyPrintBoard(gameState[RIGHT].BoardWeights)
+	}
+	if gameState[UP] != nil {
+		PrettyPrintBoard(gameState[UP].BoardWeights)
+	}
+
+    paths := findAllPaths(&decoded.You.Body.Data[0], &decoded.Food.Data[0], &gameState)
+
+	i := 0
+    preferredDirs := make([]int, 4)
+    for i < 4 {
+		preferredDirs[i] = -1
+    	i++
+	}
+    availableDirs := make([]int, 0)
+    availableDirs = append(availableDirs, LEFT)
+	availableDirs = append(availableDirs, RIGHT)
+	availableDirs = append(availableDirs, DOWN)
+	availableDirs = append(availableDirs, UP)
+	i = 0
+    for len(availableDirs) > 0 {
+		min := math.MaxInt8
+		bestDir := -1
+		for dir, path := range *paths {
+			if dir == preferredDirs[0] || dir == preferredDirs[1] || dir == preferredDirs[2] || dir == preferredDirs[3] {
+				continue
+			}
+			if path == nil {
+				log.Printf("dir: %d no path", dir)
+				continue
+			}
+			log.Printf("dir: %d len: %d", dir, len(*path))
+			if len(*path) < min {
+				bestDir = dir
+				min = len(*path)
+			}
+		}
+		if bestDir == -1 {
+			bestDir = availableDirs[0]
+		}
+		preferredDirs[i] = bestDir
+		log.Printf("Setting best dir %d as %d", i, bestDir)
+		i++
+		for j, dir := range availableDirs {
+			if dir == bestDir {
+				availableDirs = append(availableDirs[:j], availableDirs[j+1:]...)
+				break
+			}
+		}
+		log.Println(availableDirs)
+	}
+	bestDir := calculateSafeDirection(&preferredDirs, &gameState)
+	switch bestDir {
+	case LEFT: buffer.WriteString("left")
+	case RIGHT: buffer.WriteString("right")
+	case UP: buffer.WriteString("up")
+	case DOWN: buffer.WriteString("down")
+	}
     log.Println("next move:", buffer.String())
 	return &decoded, err
 }
@@ -98,41 +188,66 @@ func PrettyPrintBoard(board *[][]int8) {
 	}
 }
 
-func calculateWeights(head *Point, board *[][]int8) {
+func copyBoard(board *[][]int8) (*[][]int8) {
+    newBoard := make([][]int8, len(*board))
+    for y := range *board {
+        newBoard[y] = make([]int8, len((*board)[0]))
+    }
+
+    for y := range newBoard {
+        for x:= range newBoard[y] {
+            newBoard[y][x] = (*board)[y][x]
+        }
+    }
+    return &newBoard
+}
+
+func createMoveState(start *Point, originalBoard *[][]int8) *MoveState {
+    if (*originalBoard)[start.Y][start.X] == -1 {
+        return nil
+    }
+
+    moveState := &MoveState {
+        BoardWeights: copyBoard(originalBoard),
+        MovesRemaining: 0,
+    }
+
+	(*(moveState.BoardWeights))[start.Y][start.X] = -1
+
     var queue []*Node
     var node *Node
     queue = append(queue, &Node{
             pos: &Point{
-                X: head.X+1,
-                Y: head.Y,
+                X: start.X+1,
+                Y: start.Y,
             },
             weight: 1,
         })
 	queue = append(queue, &Node{
 		pos: &Point{
-			X: head.X-1,
-			Y: head.Y,
+			X: start.X-1,
+			Y: start.Y,
 		},
 		weight: 1,
 	})
 	queue = append(queue, &Node{
 		pos: &Point{
-			X: head.X,
-			Y: head.Y+1,
+			X: start.X,
+			Y: start.Y+1,
 		},
 		weight: 1,
 	})
 	queue = append(queue, &Node{
 		pos: &Point{
-			X: head.X,
-			Y: head.Y-1,
+			X: start.X,
+			Y: start.Y-1,
 		},
 		weight: 1,
         })
     for len(queue) != 0 {
         node = queue[0]
         queue = queue[1:]
-        if !isValid(node.pos, board) || isVisited(node.pos, board) {
+        if !isValid(node.pos, moveState.BoardWeights) || isVisited(node.pos, moveState.BoardWeights) {
             continue
         }
         queue = append(queue, &Node{
@@ -163,8 +278,11 @@ func calculateWeights(head *Point, board *[][]int8) {
             },
             weight: node.weight+1,
         })
-        (*board)[node.pos.Y][node.pos.X] = node.weight
+        (*(moveState.BoardWeights))[node.pos.Y][node.pos.X] = node.weight
+        moveState.MovesRemaining += 1
     }
+    
+    return moveState
 }
 
 func isValid(pos *Point, board *[][]int8) bool {
@@ -185,12 +303,27 @@ func isVisited(pos *Point, board *[][]int8) bool {
     }
 }
 
-func findPath(start, dest *Point, board *[][]int8) *[]*Point {
+func findAllPaths(head, dest *Point, gameState *[]*MoveState) *[]*[]*Point {
+	paths := make([]*[]*Point, 4)
+	paths[LEFT] = findPath(&Point {head.X-1, head.Y}, dest, (*gameState)[LEFT])
+	paths[RIGHT] = findPath(&Point {head.X+1, head.Y}, dest, (*gameState)[RIGHT])
+	paths[UP] = findPath(&Point {head.X, head.Y-1}, dest, (*gameState)[UP])
+	paths[DOWN] = findPath(&Point {head.X, head.Y+1}, dest, (*gameState)[DOWN])
+	return &paths
+}
+
+func findPath(start, dest *Point, moveState *MoveState) *[]*Point {
+	if moveState == nil {
+		return nil
+	}
+
+	board := moveState.BoardWeights
+
     var path []*Point
     var next *Point
     // dest unreachable
     if (*board)[dest.Y][dest.X] == 0 {
-        return &path
+        return nil
     }
     path = append(path, dest)
     next = dest
@@ -229,37 +362,9 @@ func ReversePath(array []*Point) {
 	}
 }
 
-//func CheckBlocked(dir string, head *Point, board *[][]int8) bool {
-//    var next *Point
-//    switch dir {
-//        case "left":
-//            next = &Point{
-//                X: head.X-1,
-//                Y: head.Y,
-//            }
-//        case "right":
-//            next = &Point{
-//                X: head.X+1,
-//                Y: head.Y,
-//            }
-//        case "up":
-//            next = &Point{
-//                X: head.X,
-//                Y: head.Y-1,
-//            }
-//        case "down":
-//            next = &Point{
-//                X: head.X,
-//                Y: head.Y+1,
-//            }
-//        default:
-//            return false
-//    }
-//    if next.X < 0 || (*board)[next.Y][next.X-1] != 1 {
-//        return false
-//    }
-//    return true
-//}
+func calculateSafeDirection(preferredDirs *[]int, gameState *[]*MoveState) int {
+    return (*preferredDirs)[0]
+}
 
 func NewGameStartRequest(req *http.Request) (*GameStartRequest, error) {
 	decoded := GameStartRequest{}
