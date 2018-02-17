@@ -26,15 +26,17 @@ func handleStart(res http.ResponseWriter, req *http.Request) {
 		})
 	}
 
-	scheme := "http"
-	if req.TLS != nil {
-		scheme = "https"
-	}
+	//scheme := "http"
+	//if req.TLS != nil {
+	//	scheme = "https"
+	//}
 	respond(res, GameStartResponse{
-		Taunt:   toStringPointer("battlesnake-go!"),
-		Color:   "#00FF00",
+		Taunt:   toStringPointer("jsut another snk from the zoo..."),
+		Color:   "#DA70D6",
 		Name:    fmt.Sprintf("%v (%vx%v)", data.GameId, data.Width, data.Height),
-		HeadUrl: toStringPointer(fmt.Sprintf("%v://%v/static/head.png", scheme, req.Host)),
+		//HeadUrl: toStringPointer(fmt.Sprintf("%v://%v/static/head.png", scheme, req.Host)),
+		HeadUrl: toStringPointer("https://marketplace.magento.com/media/catalog/product/cache/image" +
+			"/750x360/e9c3970ab036de70892d86c6d221abfe/i/c/icon-256x256_2_1_1_2_1_1.png"),
 	})
 }
 
@@ -43,6 +45,7 @@ func handleMove(res http.ResponseWriter, req *http.Request) {
 	start := time.Now()
 	data, err := NewMoveRequest(req, &buffer)
 	log.Printf("Took %s", time.Since(start))
+	log.Println()
 	if err != nil {
 		respond(res, MoveResponse{
 			Move:  "up",
