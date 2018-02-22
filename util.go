@@ -6,16 +6,15 @@ func toStringPointer(str string) *string {
 	return &str
 }
 
-// An Item is something we manage in a priority queue.
-type Item struct {
-	value    interface{} // The value of the item; arbitrary.
-	priority float64    // The priority of the item in the queue.
-	// The index is needed by update and is maintained by the heap.Interface methods.
-	index int // The index of the item in the heap.
+type PriorityQueueNode struct {
+	value    *Point
+	priority float64
+	index  int
+	parent *PriorityQueueNode
 }
 
 // A PriorityQueue implements heap.Interface and holds Items.
-type PriorityQueue []*Item
+type PriorityQueue []*PriorityQueueNode
 
 func (pq PriorityQueue) Len() int { return len(pq) }
 
@@ -32,7 +31,7 @@ func (pq PriorityQueue) Swap(i, j int) {
 
 func (pq *PriorityQueue) Push(x interface{}) {
 	n := len(*pq)
-	item := x.(*Item)
+	item := x.(*PriorityQueueNode)
 	item.index = n
 	*pq = append(*pq, item)
 }
@@ -47,7 +46,7 @@ func (pq *PriorityQueue) Pop() interface{} {
 }
 
 // update modifies the priority and value of an Item in the queue.
-func (pq *PriorityQueue) update(item *Item, value string, priority float64) {
+func (pq *PriorityQueue) update(item *PriorityQueueNode, value *Point, priority float64) {
 	item.value = value
 	item.priority = priority
 	heap.Fix(pq, item.index)

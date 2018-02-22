@@ -90,27 +90,33 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 	}
 	// fill the cells with 1 for snakes' bodies
 	for _, snk := range decoded.Snakes.Data {
-		for _, pos := range snk.Body.Data {
-			board[pos.Y][pos.X] = -1
+		for i, pos := range snk.Body.Data {
+			if board[pos.Y][pos.X] != 0 {
+				continue
+			}
+			board[pos.Y][pos.X] = - (len(snk.Body.Data)-i)
 		}
 	}
 
-	body := decoded.You.Body.Data
-	bodyLength := len(body)
+	var otherSnakes []Snake
+	for _, snake := range decoded.Snakes.Data {
+		if snake.Body.Data[0] == decoded.You.Body.Data[0] {
+			continue
+		}
+		otherSnakes = append(otherSnakes, snake)
+	}
 
 	gameState := make([]*MoveState, 4)
 	head := decoded.You.Body.Data[0]
 
-	var closestFood Point
+	var closestFood *Point
 
-	preferredFood := preferredFood(&head, &decoded.Food.Data, &board)
-	if len(*preferredFood) > 1 {
+	preferredFood := preferredFood(&head, &decoded.Food.Data, &board, &otherSnakes)
+	if len(*preferredFood) >= 1 {
 		// not using Pop in case we want to do something else
-		closestFood = (*preferredFood)[0].value.(Point)
-		log.Println("Closest food is", closestFood)
+		closestFood = (*preferredFood)[0].value
 	} else {
-		closestFood = *(&decoded.Food.Data[0])
-		log.Println("None of the foods is reachable. pick ", closestFood)
+		closestFood = &decoded.Food.Data[0]
 	}
 
 	left := &Point{head.X - 1, head.Y}
@@ -118,28 +124,15 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 	down := &Point{head.X, head.Y + 1}
 	up := &Point{head.X, head.Y - 1}
 
-	gameState[LEFT] = createMoveState(left, &body, &board)
+	gameState[LEFT] = createMoveState(left, &decoded.You.Body.Data, &board)
 
-	gameState[RIGHT] = createMoveState(right, &body, &board)
+	gameState[RIGHT] = createMoveState(right, &decoded.You.Body.Data, &board)
 
-	gameState[UP] = createMoveState(up, &body, &board)
+	gameState[UP] = createMoveState(up, &decoded.You.Body.Data, &board)
 
-	gameState[DOWN] = createMoveState(down, &body, &board)
+	gameState[DOWN] = createMoveState(down, &decoded.You.Body.Data, &board)
 
-	//if gameState[LEFT] != nil {
-	//	PrettyPrintBoard(gameState[LEFT].BoardWeights)
-	//}
-	//if gameState[DOWN] != nil {
-	//	PrettyPrintBoard(gameState[DOWN].BoardWeights)
-	//}
-	//if gameState[RIGHT] != nil {
-	//	PrettyPrintBoard(gameState[RIGHT].BoardWeights)
-	//}
-	//if gameState[UP] != nil {
-	//	PrettyPrintBoard(gameState[UP].BoardWeights)
-	//}
-
-	paths := findAllPaths(&decoded.You.Body.Data[0], &closestFood, &gameState)
+	paths := findAllPaths(&decoded.You.Body.Data[0], closestFood, &gameState)
 
 	i := 0
 	preferredDirs := make([]int, 4)
@@ -161,10 +154,8 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 				continue
 			}
 			if path == nil {
-				log.Printf("dir: %d no path", dir)
 				continue
 			}
-			log.Printf("dir: %d len: %d", dir, len(*path))
 			if len(*path) < min {
 				bestDir = dir
 				min = len(*path)
@@ -174,7 +165,6 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 			bestDir = availableDirs[0]
 		}
 		preferredDirs[i] = bestDir
-		log.Printf("Setting best dir %d as %d", i, bestDir)
 		i++
 		for j, dir := range availableDirs {
 			if dir == bestDir {
@@ -182,9 +172,8 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 				break
 			}
 		}
-		log.Println(availableDirs)
 	}
-	bestDir := calculateSafeDirection(&preferredDirs, bodyLength, &gameState, &head, &body)
+	bestDir := calculateSafeDirection(&preferredDirs, &board, &gameState, &decoded.You, &otherSnakes)
 	switch bestDir {
 	case LEFT:
 		buffer.WriteString("left")
@@ -194,143 +183,100 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 		buffer.WriteString("up")
 	case DOWN:
 		buffer.WriteString("down")
-	default:
-		log.Println("Error: best direction", bestDir)
 	}
 	log.Println("next move:", buffer.String())
-
-	// test the longest path is correct
-	//testBoard := copyBoard(&board)
-	//(*testBoard)[head.Y][head.X] = 0
-	//testState := createMoveState(&head, &body, testBoard)
-	//(*testState.BoardWeights)[head.Y][head.X] = 0
-	//path := longestPath(&head, &closestFood, testState.BoardWeights)
-	//for _, p := range path {
-	//	log.Printf("path (%d %d)", p.X, p.Y)
-	//}
-
-	// test first open space
-	testBoard2 := copyBoard(&board)
-	PrettyPrintBoard(testBoard2)
-	activeWalls := activeWalls(&head, testBoard2)
-
-	for w := range *activeWalls {
-		log.Printf("walls: (%d, %d)", w.X, w.Y)
-	}
-	snakes := make([][]Point, 0)
-	for _, snk := range *(&decoded.Snakes.Data) {
-		snakes = append(snakes, snk.Body.Data)
-	}
-	sp := firstOpenSpace(&snakes, activeWalls)
-	log.Printf("first open space (%d, %d)", sp.X, sp.Y)
 
 	return &decoded, err
 }
 
-func longestPath(start, dest *Point, board *[][]int) []*Point {
-	// dest must be reachable from start
-	log.Println("longest path between", start, "and", dest)
-	PrettyPrintBoard(board)
-	path := make([]*Point, 0)
-	path = append(path, start)
-	visited := make(map[Point]bool)
-	visited[*start] = true
-	for (*start).X != (*dest).X || (*start).Y != (*dest).Y {
-		neighbours := getNeighboursByDistance(start, dest, board)
-		heap.Init(neighbours)
-		for len(*neighbours) > 0 {
-			neighbour := heap.Pop(neighbours).(*Item).value.(*Point)
-			//log.Println("checking", start, "neighbour", neighbour)
-			if visited[*neighbour] {
-				//log.Println(neighbour, "has been visited")
-				continue
-			}
-			if math.Abs(float64((*board)[(*neighbour).Y][(*neighbour).X]-
-				(*board)[start.Y][start.X])) == float64(1) {
-				//log.Println("move to", neighbour)
-				start = neighbour
-			}
-			visited[*neighbour] = true
-			break
-		}
-		// revert path
-		if start == path[len(path)-1] {
-			start = path[len(path)-2]
-			path = path[0 : len(path)-1]
-		} else {
-			path = append(path, start)
-		}
+func longestPath(start, dest *Point, board *[][]int) int {
+	var preferredDir []int
+	xDiff := start.X - dest.X
+	yDiff := start.Y - dest.Y
+	bestX := -1
+	bestY := -1
+	directions := make([]*Point, 4)
+	directions[LEFT] = &Point{start.X - 1, start.Y}
+	directions[RIGHT] = &Point{start.X + 1, start.Y}
+	directions[DOWN] = &Point{start.X, start.Y + 1}
+	directions[UP] = &Point{start.X, start.Y - 1}
+	if xDiff > 0 {
+		bestX = RIGHT
+	} else if xDiff < 0 {
+		bestX = LEFT
 	}
 
-	return path
+	if yDiff > 0 {
+		bestY = DOWN
+	} else if yDiff < 0 {
+		bestY = UP
+	}
+	if bestY == -1 {
+		preferredDir = []int{bestX, UP, DOWN, (bestX+2)%4}
+	} else if bestX == -1 {
+		preferredDir = []int{bestY, LEFT, RIGHT, (bestY+2)%4}
+	} else {
+		preferredDir = []int{bestX, bestY, (bestX+2)%4, (bestY+2)%4}
+	}
+	for _, dir := range preferredDir {
+		if  !isValid(directions[dir], board) {
+			continue
+		}
+		if AStarSearch(directions[dir], dest, board) == nil {
+			continue
+		}
+
+		return dir
+	}
+	return UP
 }
 
-func getNeighboursByDistance(curr, dest *Point, board *[][]int) *PriorityQueue {
-	left := &Point{(*curr).X - 1, (*curr).Y}
-	right := &Point{(*curr).X + 1, (*curr).Y}
-	down := &Point{(*curr).X, (*curr).Y + 1}
-	up := &Point{(*curr).X, (*curr).Y - 1}
-
-	pq := make(PriorityQueue, 0)
-	heap.Init(&pq)
-
-	if isValid(left, board) {
-		heap.Push(&pq, &Item{value: left, priority: -StraightLineDistance(left, dest)})
-	}
-	if isValid(right, board) {
-		heap.Push(&pq, &Item{value: right, priority: -StraightLineDistance(right, dest)})
-	}
-	if isValid(down, board) {
-		heap.Push(&pq, &Item{value: down, priority: -StraightLineDistance(down, dest)})
-	}
-	if isValid(up, board) {
-		heap.Push(&pq, &Item{value: up, priority: -StraightLineDistance(up, dest)})
-	}
-
-	return &pq
-}
-
-func StraightLineDistance(x, y *Point) float64 {
-	return math.Sqrt(math.Pow(float64(x.X-y.X), 2) + math.Pow(float64(x.Y-y.Y), 2))
-}
-
-func firstOpenSpace(snakes *[][]Point, activeWalls *map[Point]bool) *Point {
-	maxLen := math.MinInt32
-	for _, snk := range *snakes {
-		if len(snk) > maxLen {
-			maxLen = len(snk)
+func firstOpenSpace(board *[][]int, activeWalls *[]*Point) *Point {
+	var bestSpace *Point
+	bestValue := math.MinInt32
+	for _, wall := range *activeWalls {
+		if (*board)[wall.Y][wall.X] > bestValue {
+			bestSpace = wall
+			bestValue = (*board)[wall.Y][wall.X]
 		}
 	}
-	for i := 0; i < maxLen; i++ {
-		for _, snake := range *snakes {
-			if i > len(snake)-1 {
-				continue
-			}
-			if (*activeWalls)[snake[len(snake)-1-i]] {
-				return &snake[len(snake)-1-i]
-			}
-		}
-	}
-	return nil
+	return bestSpace
 }
 
-func preferredFood(head *Point, foods *[]Point, board *[][]int) *PriorityQueue {
-	tempBoard := copyBoard(board)
-	(*tempBoard)[head.Y][head.X] = 0
+func preferredFood(head *Point, foods *[]Point, board *[][]int, snakes *[]Snake) *PriorityQueue {
 
-	var dummyBody []Point
-	newBoard := createMoveState(head, &dummyBody, tempBoard).BoardWeights
-	PrettyPrintBoard(newBoard)
+	moveState := &MoveState {copyBoard(board), 0}
+	floodFillMoveState(head, moveState)
+
+	snakeWeights := make([]*MoveState, len(*snakes))
+	for i, snake := range *snakes {
+		snakeMoveState := &MoveState {copyBoard(board), 0}
+		floodFillMoveState(&snake.Body.Data[0], snakeMoveState)
+		snakeWeights[i] = snakeMoveState
+	}
 
 	pq := make(PriorityQueue, 0)
 	heap.Init(&pq)
 
 	for _, food := range *foods {
-		log.Println("food:", food, "path cost:", (*newBoard)[food.Y][food.X])
-		if (*newBoard)[food.Y][food.X] == 0 {
+		if (*moveState.BoardWeights)[food.Y][food.X] == 0 {
 			continue
 		}
-		heap.Push(&pq, &Item{value: food, priority: float64((*newBoard)[food.Y][food.X])})
+		minWeight := math.MaxInt32
+		for _, weights := range snakeWeights {
+			snakeWeight := (*weights.BoardWeights)[food.Y][food.X]
+			if snakeWeight == 0 {
+				continue
+			}
+			if snakeWeight < minWeight  {
+				minWeight = snakeWeight
+			}
+		}
+		score := (*moveState.BoardWeights)[food.Y][food.X]
+		if minWeight <= score {
+			score = 50 + (score - minWeight)
+		}
+		heap.Push(&pq, &PriorityQueueNode{value: &Point{food.X,food.Y}, priority: float64(score)})
 	}
 
 	return &pq
@@ -343,7 +289,6 @@ func isTailStacked(body *[]Point) bool {
 		return true
 	} else {
 		if (*body)[len(*body)-1].X == (*body)[len(*body)-2].X && (*body)[len(*body)-1].Y == (*body)[len(*body)-2].Y {
-			log.Printf("Tail stacked at (%d, %d)", (*body)[len(*body)-1].X, (*body)[len(*body)-1].Y)
 			return true
 		} else {
 			return false
@@ -351,15 +296,14 @@ func isTailStacked(body *[]Point) bool {
 	}
 }
 
-func activeWalls(head *Point, board *[][]int) *map[Point]bool {
-	walls := make(map[Point]bool)
+func activeWalls(head *Point, board *[][]int) *[]*Point {
+	walls := make([]*Point, 0)
 	visited := make(map[Point]bool)
 	var queue []*Point
 	queue = append(queue, head)
 	for len(queue) > 0 {
 		curr := queue[0]
 		queue = queue[1:]
-		//log.Printf("checking (%d, %d) is wall", curr.X, curr.Y)
 		if visited[*curr] {
 			continue
 		}
@@ -372,33 +316,29 @@ func activeWalls(head *Point, board *[][]int) *map[Point]bool {
 		if !isOutOfBound(left, board) {
 			if (*board)[left.Y][left.X] == 0 {
 				queue = append(queue, left)
-			} else if (*board)[left.Y][left.X] == -1 && (*board)[curr.Y][curr.X] == 0 {
-				//log.Printf("(%d, %d) is wall", curr.X, curr.Y)
-				walls[*left] = true
+			} else if (*board)[left.Y][left.X] < 0 && (*board)[curr.Y][curr.X] == 0 {
+				walls = append(walls, left)
 			}
 		}
 		if !isOutOfBound(right, board) {
 			if (*board)[right.Y][right.X] == 0 {
 				queue = append(queue, right)
-			} else if (*board)[right.Y][right.X] == -1 && (*board)[curr.Y][curr.X] == 0 {
-				//log.Printf("(%d, %d) is wall", curr.X, curr.Y)
-				walls[*right] = true
+			} else if (*board)[right.Y][right.X] < 0 && (*board)[curr.Y][curr.X] == 0 {
+				walls = append(walls, right)
 			}
 		}
 		if !isOutOfBound(up, board) {
 			if (*board)[up.Y][up.X] == 0 {
 				queue = append(queue, up)
-			} else if (*board)[up.Y][up.X] == -1 && (*board)[curr.Y][curr.X] == 0 {
-				//log.Printf("(%d, %d) is wall", curr.X, curr.Y)
-				walls[*up] = true
+			} else if (*board)[up.Y][up.X] < 0 && (*board)[curr.Y][curr.X] == 0 {
+				walls = append(walls, up)
 			}
 		}
 		if !isOutOfBound(down, board) {
 			if (*board)[down.Y][down.X] == 0 {
 				queue = append(queue, down)
-			} else if (*board)[down.Y][down.X] == -1 && (*board)[curr.Y][curr.X] == 0 {
-				//log.Printf("(%d, %d) is wall", curr.X, curr.Y)
-				walls[*down] = true
+			} else if (*board)[down.Y][down.X] < 0 && (*board)[curr.Y][curr.X] == 0 {
+				walls = append(walls, down)
 			}
 		}
 
@@ -422,7 +362,7 @@ func copyBoard(board *[][]int) *[][]int {
 
 	for y := range newBoard {
 		for x := range newBoard[y] {
-			if (*board)[y][x] == -1 {
+			if (*board)[y][x] < 0 {
 				newBoard[y][x] = (*board)[y][x]
 			}
 		}
@@ -430,21 +370,7 @@ func copyBoard(board *[][]int) *[][]int {
 	return &newBoard
 }
 
-func createMoveState(start *Point, body *[]Point, originalBoard *[][]int) *MoveState {
-	if !isValid(start, originalBoard) {
-		return nil
-	}
-
-	moveState := &MoveState{
-		BoardWeights:   copyBoard(originalBoard),
-		MovesRemaining: 0,
-	}
-
-	(*(moveState.BoardWeights))[start.Y][start.X] = -1
-	// TODO fix tail
-	if !isTailStacked(body) {
-		(*(moveState.BoardWeights))[(*body)[len(*body)-1].Y][(*body)[len(*body)-1].X] = 0
-	}
+func floodFillMoveState(start *Point, moveState *MoveState) {
 	var queue []*Node
 	var node *Node
 	queue = append(queue, &Node{
@@ -512,13 +438,35 @@ func createMoveState(start *Point, body *[]Point, originalBoard *[][]int) *MoveS
 		(*(moveState.BoardWeights))[node.pos.Y][node.pos.X] = node.weight
 		moveState.MovesRemaining += 1
 	}
+}
+
+func createMoveState(start *Point, body *[]Point, originalBoard *[][]int) *MoveState {
+	if isOutOfBound(start, originalBoard) {
+		return nil
+	}
+
+	moveState := &MoveState{
+		BoardWeights:   copyBoard(originalBoard),
+		MovesRemaining: 0,
+	}
+	// TODO fix tail
+	if !isTailStacked(body) {
+		(*(moveState.BoardWeights))[(*body)[len(*body)-1].Y][(*body)[len(*body)-1].X] = 0
+	}
+
+	if isWall(start, moveState.BoardWeights) {
+		return nil
+	}
+
+	(*(moveState.BoardWeights))[start.Y][start.X] = -1
+
+	floodFillMoveState(start, moveState)
 
 	return moveState
 }
 
 func isValid(pos *Point, board *[][]int) bool {
 	if isOutOfBound(pos, board) || isWall(pos, board) {
-		//log.Printf("(%d, %d) is invalid", pos.X, pos.Y)
 		return false
 	} else {
 		return true
@@ -534,7 +482,7 @@ func isOutOfBound(pos *Point, board *[][]int) bool {
 }
 
 func isWall(pos *Point, board *[][]int) bool {
-	if (*board)[pos.Y][pos.X] == -1 {
+	if (*board)[pos.Y][pos.X] < 0 {
 		return true
 	} else {
 		return false
@@ -543,7 +491,6 @@ func isWall(pos *Point, board *[][]int) bool {
 
 func isVisited(pos *Point, board *[][]int) bool {
 	if (*board)[pos.Y][pos.X] > 0 {
-		//log.Printf("(%d, %d) has already been checked", pos.X, pos.Y)
 		return true
 	} else {
 		return false
@@ -609,43 +556,114 @@ func ReversePath(array []*Point) {
 	}
 }
 
-func calculateSafeDirection(preferredDirs *[]int, bodyLength int, gameState *[]*MoveState, head *Point, body *[]Point) int {
-	// log.Println((*gameState)[1].MovesRemaining, bodyLength)
+func moveIsTrap(move *Point, board *[][]int, snakes *[]Snake) bool {
+	nextMove := move
+	lastMove := move
+	for true {
+		availableMoves := make([]*Point, 0)
+		left := &Point{nextMove.X - 1, nextMove.Y}
+		right := &Point{nextMove.X + 1, nextMove.Y}
+		down := &Point{nextMove.X, nextMove.Y + 1}
+		up := &Point{nextMove.X, nextMove.Y - 1}
+		if isValid(left, board) && *left != *lastMove {
+			availableMoves = append(availableMoves, left)
+		}
+		if isValid(right, board) && *right != *lastMove  {
+			availableMoves = append(availableMoves, right)
+		}
+		if isValid(down, board) && *down != *lastMove  {
+			availableMoves = append(availableMoves, down)
+		}
+		if isValid(up, board) && *up != *lastMove  {
+			availableMoves = append(availableMoves, up)
+		}
+		if len(availableMoves) == 0 {
+			return false //This is already a dead end, calculate safe path will try to save us
+		}
+		if len(availableMoves) > 1 {
+			break
+		}
+		lastMove = nextMove
+		nextMove = availableMoves[0]
+	}
+	if nextMove == move {
+		return false
+	}
+
+	distanceToExit := (*board)[nextMove.Y][nextMove.X]
+	for _, snake := range *snakes {
+		snakeMoveState := &MoveState{
+			BoardWeights:   copyBoard(board),
+			MovesRemaining: 0,
+		}
+		floodFillMoveState(&snake.Body.Data[0], snakeMoveState)
+		if (*snakeMoveState.BoardWeights)[nextMove.Y][nextMove.X] == 0 {
+			continue
+		}
+		if (*snakeMoveState.BoardWeights)[nextMove.Y][nextMove.X] < distanceToExit {
+			return true
+		}
+	}
+	return false
+}
+
+func moveCouldHitSnakeHead(snakes *[]Snake, you *Snake, move *Point) bool {
+	bodyLength := len(you.Body.Data)
+	for _, snake := range *snakes {
+		if len(snake.Body.Data) < bodyLength {
+			continue
+		}
+		snakeHead := snake.Body.Data[0]
+		if snakeHead.X+1 == move.X && snakeHead.Y == move.Y {
+			return true
+		}
+		if snakeHead.X-1 == move.X && snakeHead.Y == move.Y {
+			return true
+		}
+		if snakeHead.X == move.X && snakeHead.Y+1 == move.Y {
+			return true
+		}
+		if snakeHead.X == move.X && snakeHead.Y-1 == move.Y {
+			return true
+		}
+	}
+	return false
+}
+
+func calculateSafeDirection(preferredDirs *[]int, board *[][]int, gameState *[]*MoveState, you *Snake, snakes *[]Snake) int {
+	body := &you.Body.Data
+	head := &(*body)[0]
+	bodyLength := len(*body)
 	for i, dir := range *preferredDirs {
-		if (*gameState)[dir] != nil && (*gameState)[dir].MovesRemaining >= bodyLength {
-			// log.Println("aaaa", (*preferredDirs)[i])
-			return (*preferredDirs)[i]
+		if (*gameState)[dir] == nil {
+			continue
+		}
+		var start *Point
+		switch dir {
+			case LEFT: start = &Point{head.X-1, head.Y}
+			case RIGHT: start = &Point{head.X+1, head.Y}
+			case DOWN: start = &Point{head.X, head.Y+1}
+			case UP: start = &Point{head.X, head.Y-1}
+		}
+
+		if moveCouldHitSnakeHead(snakes, you, start) {
+			continue
+		}
+
+		if moveIsTrap(start, (*gameState)[dir].BoardWeights, snakes) {
+			continue
+		}
+
+		if (*gameState)[dir].MovesRemaining >= bodyLength-1 {
+			if findMaxRemainingSpaces(start, body, (*gameState)[dir].BoardWeights) >= bodyLength-1 {
+				return (*preferredDirs)[i]
+			}
 		}
 	}
 
-	maxSpaces := math.MinInt32
-	bestDir := -1
-	for i, moveState := range *gameState {
-		if moveState == nil {
-			continue
-		}
-		if moveState.MovesRemaining > maxSpaces {
-			maxSpaces = moveState.MovesRemaining
-			bestDir = i
-		} else if moveState.MovesRemaining == maxSpaces {
-			bestDir = -1
-		}
-	}
-	if bestDir == -1 {
-		nextMaxSpaces := math.MinInt32
-		for i, moveState := range *gameState {
-			if moveState == nil || moveState.MovesRemaining < maxSpaces {
-				continue
-			}
-			//calculate max moves remaining for direction i
-			remainingSpaces := findMaxRemainingSpaces(head, body, moveState.BoardWeights)
-			if remainingSpaces > nextMaxSpaces {
-				nextMaxSpaces = remainingSpaces
-				bestDir = i
-			}
-		}
-	}
-	return bestDir
+	activeWalls := activeWalls(head, board)
+	openSpace := firstOpenSpace(board, activeWalls)
+	return longestPath(head, openSpace, board)
 }
 
 func findMaxRemainingSpaces(head *Point, body *[]Point, board *[][]int) int {
@@ -669,7 +687,6 @@ func findMaxRemainingSpaces(head *Point, body *[]Point, board *[][]int) int {
 			maxSpaces = state.MovesRemaining
 		}
 	}
-	//log.Println("max remaining spaces:", maxSpaces, states)
 	return maxSpaces
 }
 
@@ -679,16 +696,121 @@ func NewGameStartRequest(req *http.Request) (*GameStartRequest, error) {
 	return &decoded, err
 }
 
-//func CalculateDirectionFromPath(path *[]*Point) string {
-//	if (*path)[1].X-(*path)[0].X == -1 {
-//		return "left"
-//	} else if (*path)[1].X-(*path)[0].X == 1 {
-//		return "right"
-//	} else if (*path)[1].Y-(*path)[0].Y == -1 {
-//		return "up"
-//	} else if (*path)[1].Y-(*path)[0].Y == 1 {
-//		return "down"
-//	} else {
-//	    return "up" //TODO the default should be handled better
-//	}
-//}
+func manhattanDistance(x, y *Point) float64 {
+	return math.Abs(float64(x.X-y.X)) + math.Abs(float64(x.Y-y.Y))
+}
+
+func AStarSearch(start, dest *Point, board *[][]int) *[]Point {
+	visited := make(map[Point]bool)
+
+	pq := make(PriorityQueue, 0)
+	heap.Init(&pq)
+
+	head := &PriorityQueueNode{
+		value:    start,
+		priority: manhattanDistance(start, dest) + 0,
+		parent:   nil,
+	}
+
+	heap.Push(&pq, head)
+
+	for pq.Len() > 0 {
+		curr := heap.Pop(&pq).(*PriorityQueueNode)
+		if visited[*curr.value] {
+			continue
+		}
+
+		if *curr.value == *dest {
+			return CalculatePath(curr)
+		}
+
+		visited[*curr.value] = true
+
+		for _, neighbour := range *Expand(curr, dest, board) {
+			if !visited[*neighbour.value] {
+				heap.Push(&pq, neighbour)
+			}
+		}
+	}
+	return nil
+}
+
+func Expand(curr *PriorityQueueNode, dest *Point, board *[][]int) *[]*PriorityQueueNode {
+	successor := make([]*PriorityQueueNode, 0)
+	pathCost := curr.priority
+	var next *Point
+
+	if (curr.value.Y+1 < len(*board) && (*board)[curr.value.Y+1][curr.value.X] > -1) || (curr.value.Y+1 == dest.Y && curr.value.X == dest.X) {
+
+		next = &Point{
+			X: curr.value.X,
+			Y: curr.value.Y + 1,
+		}
+		successor = append(successor, &PriorityQueueNode{
+			value:    next,
+			priority: pathCost + 1 + manhattanDistance(next, dest),
+			parent:   curr,
+		})
+	}
+
+	if (curr.value.Y-1 >= 0 && (*board)[curr.value.Y-1][curr.value.X] > -1) || (curr.value.Y-1 == dest.Y && curr.value.X == dest.X) {
+
+		next = &Point{
+			X: curr.value.X,
+			Y: curr.value.Y - 1,
+		}
+		successor = append(successor, &PriorityQueueNode{
+			value:    next,
+			priority: pathCost + 1 + manhattanDistance(next, dest),
+			parent:   curr,
+		})
+	}
+
+	if (curr.value.X+1 < len((*board)[0]) && (*board)[curr.value.Y][curr.value.X+1] > -1) || (curr.value.Y == dest.Y && curr.value.X+1 == dest.X) {
+
+		next = &Point{
+			X: curr.value.X + 1,
+			Y: curr.value.Y,
+		}
+		successor = append(successor, &PriorityQueueNode{
+			value:    next,
+			priority: pathCost + 1 + manhattanDistance(next, dest),
+			parent:   curr,
+		})
+	}
+
+	if (curr.value.X-1 >= 0 && (*board)[curr.value.Y][curr.value.X-1] > -1) || (curr.value.Y == dest.Y && curr.value.X-1 == dest.X) {
+
+		next = &Point{
+			X: curr.value.X - 1,
+			Y: curr.value.Y,
+		}
+		successor = append(successor, &PriorityQueueNode{
+			value:    next,
+			priority: pathCost + 1 + manhattanDistance(next, dest),
+			parent:   curr,
+		})
+	}
+
+	return &successor
+}
+
+func CalculatePath(curr *PriorityQueueNode) *[]Point {
+
+	pathSize := 0
+	dest := curr
+	for curr != nil {
+		pathSize += 1
+		curr = curr.parent
+	}
+
+	path := make([]Point, pathSize)
+	curr = dest
+	for curr != nil {
+		pathSize -= 1
+		path[pathSize] = *curr.value
+		curr = curr.parent
+	}
+
+	return &path
+}
