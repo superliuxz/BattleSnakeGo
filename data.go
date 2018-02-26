@@ -78,7 +78,6 @@ type MoveState struct {
 	BoardWeights	*[][]int
 	MovesRemaining	int
 	You		  		*Snake
-	OtherSnakes		*[]Snake
 }
 
 func simulateMove(moveState *MoveState, newHead *Point) bool {
@@ -105,6 +104,7 @@ func simulateMove(moveState *MoveState, newHead *Point) bool {
 		return false
 	}
 	(*board)[newHead.Y][newHead.X] = -len(newSnake)
+	moveState.You.Body.Data = newSnake
 	return true
 }
 
@@ -202,6 +202,23 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 			}
 		}
 	}
+	blockSnakeDirs := calculateKillMoves(&board, &head, &decoded.You, &otherSnakes)
+	if len(blockSnakeDirs) > 0 {
+		oldPreferredDirs := preferredDirs
+		preferredDirs = blockSnakeDirs
+		for _, dir := range oldPreferredDirs {
+			inDirs := false
+			for _, blockDir := range blockSnakeDirs {
+				if dir == blockDir {
+					inDirs = true
+					break
+				}
+			}
+			if !inDirs {
+				preferredDirs = append(preferredDirs, dir)
+			}
+		}
+	}
 	bestDir := calculateSafeDirection(&preferredDirs, &board, &gameState, &decoded.You, &otherSnakes)
 	switch bestDir {
 	case LEFT:
@@ -216,6 +233,70 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 	log.Println("next move:", buffer.String())
 
 	return &decoded, err
+}
+
+func calculateKillMoves(board *[][]int, head *Point, snake *Snake, snakes *[]Snake) []int {
+	preferredDirs := make([]int, 0)
+	for _, dir := range []int{LEFT,RIGHT,UP,DOWN} {
+		moves := 0
+		currentPos := head
+		for moves < 4 {
+			currentPos = nextPoint(currentPos, dir)
+			if isOutOfBound(currentPos, board) || (*board)[currentPos.Y][currentPos.X] < 0 {
+				currentPos = nextPoint(currentPos, (dir+2) % 4)
+				break
+			}
+			moves++
+		}
+		if moves == 0 || moves == 4{
+			continue
+		}
+		i := 0
+		moveState := &MoveState {
+			BoardWeights:   copyBoard(board),
+			MovesRemaining: 0,
+			You: copySnake(snake),
+		}
+		for i < moves {
+			simulateMove(moveState, nextPoint(&moveState.You.Body.Data[0], dir))
+			i++
+		}
+		blocksSnake := false
+		for _, otherSnake := range *snakes {
+			newSnakeState := &MoveState {
+				BoardWeights:   copyBoard(moveState.BoardWeights),
+				MovesRemaining: 0,
+				You: copySnake(&otherSnake),
+			}
+			floodFillMoveState(&otherSnake.Body.Data[0], newSnakeState)
+			oldSnakeState := &MoveState {
+				BoardWeights:   copyBoard(board),
+				MovesRemaining: 0,
+				You: copySnake(&otherSnake),
+			}
+			floodFillMoveState(&otherSnake.Body.Data[0], oldSnakeState)
+			if newSnakeState.MovesRemaining < oldSnakeState.MovesRemaining - moves && moves < (*oldSnakeState.BoardWeights)[currentPos.Y][currentPos.X] {
+				log.Printf("With move %d snake had %d spaces but now has %d", dir, oldSnakeState.MovesRemaining, newSnakeState.MovesRemaining)
+				blocksSnake = true
+				break
+			}
+
+		}
+		if blocksSnake {
+			preferredDirs = append(preferredDirs, dir)
+		}
+	}
+	return preferredDirs
+}
+
+func nextPoint(start *Point, dir int) *Point{
+	switch dir {
+		case LEFT: return &Point{start.X-1, start.Y}
+		case RIGHT: return &Point{start.X+1, start.Y}
+		case DOWN: return &Point{start.X, start.Y+1}
+		case UP: return &Point{start.X, start.Y-1}
+		default: return nil
+	}
 }
 
 func longestPath(start, dest *Point, board *[][]int) int {
@@ -248,6 +329,9 @@ func longestPath(start, dest *Point, board *[][]int) int {
 		preferredDir = []int{bestX, bestY, (bestX+2)%4, (bestY+2)%4}
 	}
 	for _, dir := range preferredDir {
+		if *directions[dir] == *dest {
+			return dir
+		}
 		if  !isValid(directions[dir], board) {
 			continue
 		}
@@ -274,12 +358,12 @@ func firstOpenSpace(board *[][]int, activeWalls *[]*Point) *Point {
 
 func preferredFood(head *Point, foods *[]Point, board *[][]int, snakes *[]Snake) *PriorityQueue {
 
-	moveState := &MoveState {copyBoard(board), 0, nil, nil}
+	moveState := &MoveState {copyBoard(board), 0, nil}
 	floodFillMoveState(head, moveState)
 
 	snakeWeights := make([]*MoveState, len(*snakes))
 	for i, snake := range *snakes {
-		snakeMoveState := &MoveState {copyBoard(board), 0, nil, nil}
+		snakeMoveState := &MoveState {copyBoard(board), 0, nil}
 		floodFillMoveState(&snake.Body.Data[0], snakeMoveState)
 		snakeWeights[i] = snakeMoveState
 	}
@@ -331,28 +415,28 @@ func activeWalls(head *Point, board *[][]int) *[]*Point {
 		if !isOutOfBound(left, board) {
 			if (*board)[left.Y][left.X] == 0 {
 				queue = append(queue, left)
-			} else if (*board)[left.Y][left.X] < 0 && (*board)[curr.Y][curr.X] == 0 {
+			} else if (*board)[left.Y][left.X] < 0 && ((*board)[curr.Y][curr.X] == 0 || *curr == *head) {
 				walls = append(walls, left)
 			}
 		}
 		if !isOutOfBound(right, board) {
 			if (*board)[right.Y][right.X] == 0 {
 				queue = append(queue, right)
-			} else if (*board)[right.Y][right.X] < 0 && (*board)[curr.Y][curr.X] == 0 {
+			} else if (*board)[right.Y][right.X] < 0 && ((*board)[curr.Y][curr.X] == 0 || *curr == *head) {
 				walls = append(walls, right)
 			}
 		}
 		if !isOutOfBound(up, board) {
 			if (*board)[up.Y][up.X] == 0 {
 				queue = append(queue, up)
-			} else if (*board)[up.Y][up.X] < 0 && (*board)[curr.Y][curr.X] == 0 {
+			} else if (*board)[up.Y][up.X] < 0 && ((*board)[curr.Y][curr.X] == 0 || *curr == *head) {
 				walls = append(walls, up)
 			}
 		}
 		if !isOutOfBound(down, board) {
 			if (*board)[down.Y][down.X] == 0 {
 				queue = append(queue, down)
-			} else if (*board)[down.Y][down.X] < 0 && (*board)[curr.Y][curr.X] == 0 {
+			} else if (*board)[down.Y][down.X] < 0 && ((*board)[curr.Y][curr.X] == 0 || *curr == *head) {
 				walls = append(walls, down)
 			}
 		}
@@ -466,21 +550,12 @@ func copySnake(snake *Snake) *Snake {
 	}
 }
 
-func copySnakes(snakes *[]Snake) *[]Snake {
-	snakesCopy := make([]Snake, len(*snakes))
-	for i, snake := range *snakes {
-		snakesCopy[i] = *copySnake(&snake)
-	}
-	return &snakesCopy
-}
-
 func createMoveState(start *Point, snake *Snake, otherSnakes *[]Snake, originalBoard *[][]int) *MoveState {
 
 	moveState := &MoveState{
 		BoardWeights:   copyBoard(originalBoard),
 		MovesRemaining: 0,
 		You: copySnake(snake),
-		OtherSnakes: copySnakes(otherSnakes),
 	}
 
 	if !simulateMove(moveState, start) {
@@ -623,7 +698,6 @@ func moveIsTrap(move *Point, board *[][]int, snakes *[]Snake) bool {
 			BoardWeights:   copyBoard(board),
 			MovesRemaining: 0,
 			You: nil,
-			OtherSnakes: nil,
 		}
 		floodFillMoveState(&snake.Body.Data[0], snakeMoveState)
 		if (*snakeMoveState.BoardWeights)[nextMove.Y][nextMove.X] == 0 {
