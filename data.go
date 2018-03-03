@@ -86,7 +86,7 @@ func simulateMove(moveState *MoveState, newHead *Point) bool {
 		return false
 	}
 	newSnake := make([]Point, len(moveState.You.Body.Data))
-	newSnake[0] = *newHead
+	newSnake[0] = Point{newHead.X, newHead.Y}
 	for i, body := range moveState.You.Body.Data {
 		(*board)[body.Y][body.X] = 0
 		if i+1 == len(moveState.You.Body.Data) {
@@ -111,6 +111,7 @@ func simulateMove(moveState *MoveState, newHead *Point) bool {
 func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, error) {
 	decoded := MoveRequest{}
 	err := json.NewDecoder(req.Body).Decode(&decoded)
+	log.Println(decoded.You.Id, decoded.You.Body.Data[0])
 
 	// create a board of current game state
 	board := make([][]int, decoded.Height)
@@ -129,7 +130,7 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 
 	var otherSnakes []Snake
 	for _, snake := range decoded.Snakes.Data {
-		if snake.Body.Data[0] == decoded.You.Body.Data[0] {
+		if snake.Id == decoded.You.Id {
 			continue
 		}
 		otherSnakes = append(otherSnakes, snake)
@@ -163,46 +164,25 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 
 	paths := findAllPaths(&decoded.You.Body.Data[0], closestFood, &gameState)
 
+
+	pq := make(PriorityQueue, 0)
+	heap.Init(&pq)
+	for dir, path := range *paths {
+		if path == nil {
+			continue
+		}
+		heap.Push(&pq, &PriorityQueueNode{value: &Point{dir, 0}, priority: float64(len(*path))})
+	}
+	preferredDirs := make([]int, 0)
 	i := 0
-	preferredDirs := make([]int, 4)
-	for i < 4 {
-		preferredDirs[i] = -1
+	for i < len(pq) {
+		dir := pq[i].value.X
+		preferredDirs = append(preferredDirs, dir)
 		i++
 	}
-	availableDirs := make([]int, 0)
-	availableDirs = append(availableDirs, LEFT)
-	availableDirs = append(availableDirs, RIGHT)
-	availableDirs = append(availableDirs, DOWN)
-	availableDirs = append(availableDirs, UP)
-	i = 0
-	for len(availableDirs) > 0 {
-		min := math.MaxInt8
-		bestDir := -1
-		for dir, path := range *paths {
-			if dir == preferredDirs[0] || dir == preferredDirs[1] || dir == preferredDirs[2] || dir == preferredDirs[3] {
-				continue
-			}
-			if path == nil {
-				continue
-			}
-			if len(*path) < min {
-				bestDir = dir
-				min = len(*path)
-			}
-		}
-		if bestDir == -1 {
-			bestDir = availableDirs[0]
-		}
-		preferredDirs[i] = bestDir
-		i++
-		for j, dir := range availableDirs {
-			if dir == bestDir {
-				availableDirs = append(availableDirs[:j], availableDirs[j+1:]...)
-				break
-			}
-		}
-	}
+
 	blockSnakeDirs := calculateKillMoves(&board, &head, &decoded.You, &otherSnakes)
+
 	if len(blockSnakeDirs) > 0 {
 		oldPreferredDirs := preferredDirs
 		preferredDirs = blockSnakeDirs
@@ -230,7 +210,7 @@ func NewMoveRequest(req *http.Request, buffer *bytes.Buffer) (*MoveRequest, erro
 	case DOWN:
 		buffer.WriteString("down")
 	}
-	log.Println("next move:", buffer.String())
+	log.Println(decoded.You.Id, "next move:", buffer.String())
 
 	return &decoded, err
 }
@@ -275,7 +255,7 @@ func calculateKillMoves(board *[][]int, head *Point, snake *Snake, snakes *[]Sna
 				You: copySnake(&otherSnake),
 			}
 			floodFillMoveState(&otherSnake.Body.Data[0], oldSnakeState)
-			if newSnakeState.MovesRemaining < oldSnakeState.MovesRemaining - moves && moves < (*oldSnakeState.BoardWeights)[currentPos.Y][currentPos.X] {
+			if newSnakeState.MovesRemaining * 2 < oldSnakeState.MovesRemaining && moves < (*oldSnakeState.BoardWeights)[currentPos.Y][currentPos.X] {
 				log.Printf("With move %d snake had %d spaces but now has %d", dir, oldSnakeState.MovesRemaining, newSnakeState.MovesRemaining)
 				blocksSnake = true
 				break
@@ -300,6 +280,7 @@ func nextPoint(start *Point, dir int) *Point{
 }
 
 func longestPath(start, dest *Point, board *[][]int) int {
+	log.Println("Doing longest path")
 	var preferredDir []int
 	xDiff := start.X - dest.X
 	yDiff := start.Y - dest.Y
@@ -328,17 +309,21 @@ func longestPath(start, dest *Point, board *[][]int) int {
 	} else {
 		preferredDir = []int{bestX, bestY, (bestX+2)%4, (bestY+2)%4}
 	}
+	log.Println(preferredDir)
 	for _, dir := range preferredDir {
 		if *directions[dir] == *dest {
 			return dir
 		}
-		if  !isValid(directions[dir], board) {
+		if !isValid(directions[dir], board) {
+			log.Println("invalid dir")
 			continue
 		}
 		if AStarSearch(directions[dir], dest, board) == nil {
+			log.Println("no path to ", *dest)
 			continue
 		}
 
+		log.Println(dir)
 		return dir
 	}
 	return UP
@@ -764,8 +749,20 @@ func calculateSafeDirection(preferredDirs *[]int, board *[][]int, gameState *[]*
 		}
 	}
 
-	activeWalls := activeWalls(head, board)
-	openSpace := firstOpenSpace(board, activeWalls)
+	activeWalls := *activeWalls(head, board)
+	openSpace := firstOpenSpace(board, &activeWalls)
+	for math.Abs(float64(openSpace.X - head.X)) + math.Abs(float64(openSpace.Y - head.Y)) == 1 && math.Abs(float64((*board)[openSpace.Y][openSpace.X])) > 1 {
+		for j, wall := range activeWalls {
+			if *wall == *openSpace {
+				activeWalls = append(activeWalls[:j], activeWalls[j+1:]...)
+				break
+			}
+		}
+		openSpace = firstOpenSpace(board, &activeWalls)
+		if len(activeWalls) < 2 {
+			break
+		}
+	}
 	return longestPath(head, openSpace, board)
 }
 
