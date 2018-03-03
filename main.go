@@ -11,8 +11,8 @@ func main() {
 	fs := http.FileServer(http.Dir("static"))
 	http.Handle("/", fs)
 
-	http.HandleFunc("/start", handleStart)
-	http.HandleFunc("/move", handleMove)
+	http.HandleFunc("/derrick/start", handleStart)
+	http.HandleFunc("/derrick/move", handleMove)
 
 	port := os.Getenv("PORT")
 	if port == "" {
