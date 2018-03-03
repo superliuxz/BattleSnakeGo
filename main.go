@@ -14,6 +14,9 @@ func main() {
 	http.HandleFunc("/derrick/start", handleStart)
 	http.HandleFunc("/derrick/move", handleMove)
 
+	http.HandleFunc("/george/start", handleGeorgeStart)
+	http.HandleFunc("/george/move", handleGeorgeMove)
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "9000"
