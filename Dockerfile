@@ -25,6 +25,7 @@ RUN mkdir -p /etc/supervisor /etc/supervisor/conf.d /var/log/supervisor
 COPY conf/etc/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 
 # Create snake binary
+COPY george.go george.go
 COPY commands.go commands.go
 COPY data.go data.go
 COPY main.go main.go
