@@ -1,0 +1,19 @@
+{
+  "AWSEBDockerrunVersion": 2,
+  "volumes": [
+  ],
+  "containerDefinitions": [
+    {
+      "name": "battlesnake",
+      "image": "056252067802.dkr.ecr.us-west-2.amazonaws.com/bambora/battlesnake:latest",
+      "essential": true,
+      "memory": 512,
+      "portMappings": [
+        {
+          "hostPort": 80,
+          "containerPort": 8080
+        }
+      ]
+    }
+  ]
+}
