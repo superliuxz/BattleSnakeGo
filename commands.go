@@ -29,7 +29,7 @@ func handleStart(res http.ResponseWriter, req *http.Request) {
 	respond(res, GameStartResponse{
 		Taunt:   toStringPointer("jsut another snk from the zoo..."),
 		Color:   "#DA70D6",
-		Name:    fmt.Sprintf("%v (%vx%v)", data.GameId, data.Width, data.Height),
+		Name:    "Derrick",
 		HeadUrl: toStringPointer("https://marketplace.magento.com/media/catalog/product/cache/image" +
 			"/750x360/e9c3970ab036de70892d86c6d221abfe/i/c/icon-256x256_2_1_1_2_1_1.png"),
 	})
@@ -67,11 +67,10 @@ func handleGeorgeStart(res http.ResponseWriter, req *http.Request) {
 	}
 
 	respond(res, GameStartResponse{
-		Taunt:   toStringPointer("jsut another snk from the zoo..."),
-		Color:   "#DA70D6",
-		Name:    fmt.Sprintf("%v (%vx%v)", data.GameId, data.Width, data.Height),
-		HeadUrl: toStringPointer("https://marketplace.magento.com/media/catalog/product/cache/image" +
-			"/750x360/e9c3970ab036de70892d86c6d221abfe/i/c/icon-256x256_2_1_1_2_1_1.png"),
+		Taunt:   toStringPointer("Ooh, is that my tail?"),
+		Color:   "#0010FF",
+		Name:    "George",
+		HeadUrl: toStringPointer("https://s3.amazonaws.com/dev.beanstream.com.careless-whisper/battlesnake/dad_blank.png"),
 	})
 }
 
